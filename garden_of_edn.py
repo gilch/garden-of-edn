@@ -113,7 +113,7 @@ class BaseEDN(metaclass=ABCMeta):
     def vector(self, elements):
         ...
     def _tag(self, v: str):
-        return self.tags.get(v, partial(self.tag, v))(next(self.parse())),
+        return self.tags.get(v, partial(self.tag, v))(next(self.parse()))
     @abstractmethod
     def tag(self, tag, v: str):
         ...
@@ -142,12 +142,11 @@ class BaseEDN(metaclass=ABCMeta):
     def char(self, v: str):
         ...
 
-
 class SimpleEDN(BaseEDN):
     R"""Simple EDN parser.
 
     The 20% solution for 80% of use cases. Does not implement the full
-    EDN spec, but should have no trouble parsing a typical .edn conig
+    EDN spec, but should have no trouble parsing a typical .edn config
     file, and renders each EDN type as the most natural equivalent
     Python type, making the resulting data easy to use from Python.
     >>> [*SimpleEDN.reads(R'42 4.2 true nil')]
@@ -155,7 +154,7 @@ class SimpleEDN(BaseEDN):
 
     However, this means it throws away information and can't round-trip
     back to the same EDN. Keywords, strings, symbols, and characters all
-    become strings, because ideomatic Python uses the str type for all
+    become strings, because idiomatic Python uses the str type for all
     of these use cases.
     >>> [*SimpleEDN.reads(R'"foo" :foo foo \x')]
     ['foo', ':foo', 'foo', 'x']
@@ -179,7 +178,7 @@ class SimpleEDN(BaseEDN):
     list = tuple
     vector = builtins.list
     def tag(self, tag, v):
-        raise ValueError('Unknown tag {tag}')
+        raise ValueError(f'Unknown tag {tag}')
     def string(self, v):
         return ast.literal_eval(v.replace('\n',R'\n'))
     def int(self, v: str):
@@ -260,7 +259,7 @@ class AdvancedEDN(SimpleEDN):
 
         There is no abiguity with symbols, as ``false`` and ``true`` are
         always interpreted as booleans in EDN, so this can round-trip.
-         Beware that ``sentinel.false`` is still truthy in Python.
+        Beware that ``sentinel.false`` is still truthy in Python.
         """
         return getattr(sentinel, v)
     bool = keyword = symbol
@@ -268,7 +267,7 @@ class AdvancedEDN(SimpleEDN):
 class LiteralEDN(SimpleEDN):
     """Full EDN parser, targeting only Python literal types.
 
-    Parses data that might not round-trip as Ellipsis groups
+    Parses data that might not round-trip as Ellipsis groups.
     EDN lists still map to tuples. This is unambiguous because Ellipsis
     is not an EDN type, therefore any tuple beginning with "..." does
     not represent an EDN list. The second element is the equivalent
