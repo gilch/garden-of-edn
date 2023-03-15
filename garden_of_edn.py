@@ -113,7 +113,7 @@ class BaseEDN(metaclass=ABCMeta):
     def vector(self, elements):
         ...
     def _tag(self, v: str):
-        return self.tags.get(v, partial(self.tag, v))(next(self.parse()))
+        return self.tags.get(v[1:], partial(self.tag, v[1:]))(next(self.parse()))
     @abstractmethod
     def tag(self, tag, v: str):
         ...
