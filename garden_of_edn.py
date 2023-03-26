@@ -23,7 +23,7 @@ TOKENS = re.compile(
     |(?P<_list>\()
     |(?P<_vector>\[)
     |(?P<_tag>\#[^\W\d_][-+.:#*!?$%&=<>\w]*)
-    |(?P<string>
+    |(?P<_string>
       "  # Open quote.
         (?:[^"\\]  # Any non-magic character.
            |\\[trn\\"]  # Backslash only if paired, including with newline.
@@ -99,6 +99,8 @@ class BaseEDN(metaclass=ABCMeta):
         return self.vector(self._parse_until('_rsqb'))
     def _tag(self, v: str):
         return self.tags.get(v[1:], partial(self.tag, v[1:]))(next(self._parse()))
+    def _string(self, v):
+        return ast.literal_eval(v.replace('\n',R'\n'))
     def _float(self, v: str):
         return self.floatM(v[:-1]) if v.endswith('M') else self.float(v)
     def _int(self, v: str):
@@ -123,7 +125,7 @@ class BaseEDN(metaclass=ABCMeta):
     def vector(self, elements): return self.list(elements)
     @abstractmethod
     def symbol(self, v: str): ...
-    def string(self, v: str): return self.symbol(v)
+    def string(self, v: str): return self.symbol(repr(v))
     def keyword(self, v: str): return self.symbol(v)
     def bool(self, v: str): return self.symbol(v)
     def nil(self, v: str): return self.symbol(v)
@@ -171,8 +173,7 @@ class SimpleEDN(BaseEDN):
     map = dict
     list = tuple
     vector = builtins.list
-    def string(self, v):
-        return ast.literal_eval(v.replace('\n',R'\n'))
+    string = str
     int = int
     float = float
     symbol = str
