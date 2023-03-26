@@ -93,15 +93,13 @@ class BaseEDN(metaclass=ABCMeta):
         next(self.parse())
     def _set(self, v):
         return self.set(self._parse_until('_rcub'))
-    @abstractmethod
     def set(self, elements):
-        ...
+        return self.list(elements)
     def _map(self, v):
         kvs = self._parse_until('_rcub')
-        return self.map([k, next(kvs)] for k in kvs)
-    @abstractmethod
+        return self.map((k, next(kvs)) for k in kvs)
     def map(self, elements):
-        ...
+        return self.list(elements)
     def _list(self, v):
         return self.list(self._parse_until('_rpar'))
     @abstractmethod
@@ -109,48 +107,37 @@ class BaseEDN(metaclass=ABCMeta):
         ...
     def _vector(self, v):
         return self.vector(self._parse_until('_rsqb'))
-    @abstractmethod
     def vector(self, elements):
-        ...
+        return self.list(elements)
     def _tag(self, v: str):
         return self.tags.get(v[1:], partial(self.tag, v[1:]))(next(self.parse()))
-    @abstractmethod
     def tag(self, tag, v: str):
-        ...
-    @abstractmethod
+        raise KeyError(v)
     def string(self, v: str):
-        ...
+        return self.symbol(v)
     def _int(self, v: str):
         return self.intN(v[:-1]) if v.endswith('N') else self.int(v)
-    @abstractmethod
     def int(self, v: str):
-        ...
-    @abstractmethod
+        return self.float(v)
     def intN(self, v: str):
-        ...
+        return self.int(v)
     def _float(self, v: str):
         return self.floatM(v[:-1]) if v.endswith('M') else self.float(v)
-    @abstractmethod
     def float(self, v: str):
-        ...
-    @abstractmethod
+        return self.symbol(v)
     def floatM(self, v: str):
-        ...
-    @abstractmethod
-    def keyword(self, v: str):
-        ...
+        return self.float(v)
     @abstractmethod
     def symbol(self, v: str):
         ...
-    @abstractmethod
+    def keyword(self, v: str):
+        return self.symbol(v)
     def bool(self, v: str):
-        ...
-    @abstractmethod
+        return self.symbol(v)
     def nil(self, v: str):
-        ...
-    @abstractmethod
+        return self.symbol(v)
     def char(self, v: str):
-        ...
+        return self.string(v)
 
 class SimpleEDN(BaseEDN):
     R"""Simple EDN parser.
