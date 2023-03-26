@@ -2,7 +2,6 @@ import ast
 import builtins
 import doctest
 import re
-from abc import ABCMeta, abstractmethod
 from decimal import Decimal
 from functools import partial
 from itertools import takewhile
@@ -75,7 +74,7 @@ def tokenize(edn):
             raise ValueError(m.pos)
         yield k, v
 
-class BaseEDN(metaclass=ABCMeta):
+class BaseEDN:
     @classmethod
     def reads(cls, edn, tags=None):
         return cls(tokenize(edn), tags)._parse()
@@ -118,13 +117,11 @@ class BaseEDN(metaclass=ABCMeta):
                 yield y
     # The remainder are meant for overrides.
     def tag(self, tag, v: str): raise KeyError(v)
-    @abstractmethod
-    def list(self, elements): ...
+    list = tuple
     def set(self, elements): return self.list(elements)
     def map(self, elements): return self.list(elements)
     def vector(self, elements): return self.list(elements)
-    @abstractmethod
-    def symbol(self, v: str): ...
+    symbol = str
     def string(self, v: str): return self.symbol(repr(v))
     def keyword(self, v: str): return self.symbol(v)
     def bool(self, v: str): return self.symbol(v)
