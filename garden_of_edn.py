@@ -148,12 +148,20 @@ class SimpleEDN(BaseEDN):
     However, this means it throws away information and can't round-trip
     back to the same EDN. Keywords, strings, symbols, and characters all
     become strings, because idiomatic Python uses the str type for all
-    of these use cases.
+    of these use cases. ClojureScript will also use strings for chars.
     >>> [*SimpleEDN.reads(R'"foo" :foo foo \x')]
     ['foo', ':foo', 'foo', 'x']
 
     If this is a problem for your use case, you can override one of the
     methods to return a different type.
+
+    Mixing numeric type keys or set elements is inadvisable per the EDN
+    spec, so this is rarely an issue in practice, but Python's equality
+    semantics differ from EDN's: numeric types are equal when they
+    have the same value (and bools are treated as 1-bit ints).
+    ClojureScript has similar problems, treating all numbers as floats.
+    >>> next(SimpleEDN(R'{false 1,0 2,0N 3,0.0 4,0M 5}'))
+    {'x': 2, 0: 5}
 
     Collections simply use the Python collection with the same brackets.
     >>> [*SimpleEDN.reads(R'#{1}{2 3}(4)[5]')]
