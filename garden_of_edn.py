@@ -212,7 +212,7 @@ class AdvancedEDN(SimpleEDN):
     set = frozenset
     vector = tuple
     floatM = Decimal
-    bool = keyword = symbol = partial(getattr, sentinel)
+    symbol = partial(getattr, sentinel)
     def symbol(self, v):
         """
         Symbol and keyword types map to `unittest.mock.sentinel`, a
@@ -246,7 +246,6 @@ class AdvancedEDN(SimpleEDN):
         Beware that ``sentinel.false`` is still truthy in Python.
         """
         return getattr(sentinel, v)
-    bool = keyword = symbol
 
 class PyrEDN(AdvancedEDN):
     """EDN parser with Prysistent data structures.
