@@ -171,9 +171,7 @@ class SimpleEDN(BaseEDN):
     int = int
     float = float
     symbol = str
-    bool = {'false':False, 'true':True}.get
-    def nil(self, v):
-        return None
+    nil = bool = {'false':False, 'true':True, 'nil':None}.get
 
 class AdvancedEDN(SimpleEDN):
     """Handles more cases, using only standard-library types.
