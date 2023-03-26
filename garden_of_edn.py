@@ -22,7 +22,7 @@ TOKENS = re.compile(
     |(?P<_map>{)
     |(?P<_list>\()
     |(?P<_vector>\[)
-    |(?P<_tag>\#[A-Za-z][-+.\d:#'!$%&*<=>?A-Z_a-z]*)
+    |(?P<_tag>\#[^\W\d_][-+.:#*!?$%&=<>\w]*)
     |(?P<string>
       "  # Open quote.
         (?:[^"\\]  # Any non-magic character.
@@ -43,11 +43,16 @@ ATOMS = re.compile(
       (?:[eE][-+]?\d+)?
       M?
     )
-    |(?P<keyword>:[-+.\d:#'!$%&*<=>?A-Z_a-z]+)
-    |(?P<_symbol>[-+.]
-                |(?:['!$%&*<=>?A-Z_a-z] # Always valid at start. Not [:#\d].
-                    |[-+.][:#'!$%&*+\-.<=>?A-Z_a-z] # [-+.] can't be followed by a \d
-                 )[-+.\d:#'!$%&*<=>?A-Z_a-z]*)
+    |(?P<keyword> # Unclear from spec, but assume no empty EDN Keywords.
+      :
+      [-+.#*!?$%&=<>\w] # Second character cannot be :.
+      [-+.:#*!?$%&=<>\w]*
+     )
+    |(?P<_symbol>
+      [-+.]
+      |(?:(?:[*!?$%&=<>]|[^\W\d]) # Always valid at start. Not [:#\d].
+          |[-+.](?:[-+.:#*!?$%&=<>]|[^\W\d]) # [-+.] can't be followed by a \d
+       )[-+.:#*!?$%&=<>\w]*)
     |(?P<_char>\\(?:newline|return|space|tab|u[\dA-Fa-f]{4}|\S))
     |(?P<_error>.)
     """
