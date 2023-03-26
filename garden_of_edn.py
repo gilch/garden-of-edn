@@ -168,9 +168,9 @@ class SimpleEDN(BaseEDN):
     vector = builtins.list
     def string(self, v):
         return ast.literal_eval(v.replace('\n',R'\n'))
-    int = intN = int
-    float = floatM = float
-    keyword = symbol = str
+    int = int
+    float = float
+    symbol = str
     bool = {'false':False, 'true':True}.get
     def nil(self, v):
         return None
