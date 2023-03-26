@@ -139,10 +139,12 @@ class BaseEDN(metaclass=ABCMeta):
 class SimpleEDN(BaseEDN):
     R"""Simple EDN parser.
 
+    Renders each EDN type as the most natural equivalent Python type,
+    making the resulting data easy to use from Python.
+
     The 20% solution for 80% of use cases. Does not implement the full
     EDN spec, but should have no trouble parsing a typical .edn config
-    file, and renders each EDN type as the most natural equivalent
-    Python type, making the resulting data easy to use from Python.
+    file.
     >>> [*SimpleEDN.reads(R'42 4.2 true nil')]
     [42, 4.2, True, None]
 
