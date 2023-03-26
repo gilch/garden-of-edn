@@ -73,68 +73,55 @@ def tokenize(edn):
 class BaseEDN(metaclass=ABCMeta):
     @classmethod
     def reads(cls, edn, tags=None):
-        return cls(tokenize(edn), tags).parse()
+        return cls(tokenize(edn), tags)._parse()
     def __init__(self, tokens, tags=None):
         self.tokens = tokens
         self.tags = tags or {}
-    def parse(self, tokens=None):
+    def _tokens_until(self, k):
+        return takewhile(lambda kv: kv[0] != k, self.tokens)
+    def _parse_until(self, k):
+        return self._parse(self._tokens_until(k))
+    def _discard(self, v):
+        next(self._parse())
+    def _set(self, v):
+        return self.set(self._parse_until('_rcub'))
+    def _map(self, v):
+        kvs = self._parse_until('_rcub')
+        return self.map((k, next(kvs)) for k in kvs)
+    def _list(self, v):
+        return self.list(self._parse_until('_rpar'))
+    def _vector(self, v):
+        return self.vector(self._parse_until('_rsqb'))
+    def _tag(self, v: str):
+        return self.tags.get(v[1:], partial(self.tag, v[1:]))(next(self._parse()))
+    def _float(self, v: str):
+        return self.floatM(v[:-1]) if v.endswith('M') else self.float(v)
+    def _int(self, v: str):
+        return self.intN(v[:-1]) if v.endswith('N') else self.int(v)
+    def _parse(self, tokens=None):
         for k, v in tokens or self.tokens:
             y = getattr(self, k)(v)
             if k!='discard':
                 yield y
-    def _tokens_until(self, k):
-        return takewhile(lambda kv: kv[0] != k, self.tokens)
-    def _parse_until(self, k):
-        return self.parse(self._tokens_until(k))
-    def _discard(self, v):
-        next(self.parse())
-    def _set(self, v):
-        return self.set(self._parse_until('_rcub'))
-    def set(self, elements):
-        return self.list(elements)
-    def _map(self, v):
-        kvs = self._parse_until('_rcub')
-        return self.map((k, next(kvs)) for k in kvs)
-    def map(self, elements):
-        return self.list(elements)
-    def _list(self, v):
-        return self.list(self._parse_until('_rpar'))
+    # The remainder are meant for overrides.
+    def tag(self, tag, v: str): raise KeyError(v)
     @abstractmethod
-    def list(self, elements):
-        ...
-    def _vector(self, v):
-        return self.vector(self._parse_until('_rsqb'))
-    def vector(self, elements):
-        return self.list(elements)
-    def _tag(self, v: str):
-        return self.tags.get(v[1:], partial(self.tag, v[1:]))(next(self.parse()))
-    def tag(self, tag, v: str):
-        raise KeyError(v)
-    def string(self, v: str):
-        return self.symbol(v)
-    def _int(self, v: str):
-        return self.intN(v[:-1]) if v.endswith('N') else self.int(v)
-    def int(self, v: str):
-        return self.float(v)
-    def intN(self, v: str):
-        return self.int(v)
-    def _float(self, v: str):
-        return self.floatM(v[:-1]) if v.endswith('M') else self.float(v)
-    def float(self, v: str):
-        return self.symbol(v)
-    def floatM(self, v: str):
-        return self.float(v)
+    def list(self, elements): ...
+    def set(self, elements): return self.list(elements)
+    def map(self, elements): return self.list(elements)
+    def vector(self, elements): return self.list(elements)
     @abstractmethod
-    def symbol(self, v: str):
-        ...
-    def keyword(self, v: str):
-        return self.symbol(v)
-    def bool(self, v: str):
-        return self.symbol(v)
-    def nil(self, v: str):
-        return self.symbol(v)
-    def char(self, v: str):
-        return self.string(v)
+    def symbol(self, v: str): ...
+    def string(self, v: str): return self.symbol(v)
+    def keyword(self, v: str): return self.symbol(v)
+    def bool(self, v: str): return self.symbol(v)
+    def nil(self, v: str): return self.symbol(v)
+    def float(self, v: str): return self.symbol(v)
+    # The remainder don't fall back to symbol directly.
+    def floatM(self, v: str): return self.float(v)
+    def int(self, v: str): return self.float(v)
+    def intN(self, v: str): return self.int(v)
+    def char(self, v: str): return self.string(v)
 
 class SimpleEDN(BaseEDN):
     R"""Simple EDN parser.
@@ -173,8 +160,6 @@ class SimpleEDN(BaseEDN):
     map = dict
     list = tuple
     vector = builtins.list
-    def tag(self, tag, v):
-        raise ValueError(f'Unknown tag {tag}')
     def string(self, v):
         return ast.literal_eval(v.replace('\n',R'\n'))
     int = intN = int
