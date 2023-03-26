@@ -72,14 +72,11 @@ def tokenize(edn):
 
 class BaseEDN(metaclass=ABCMeta):
     @classmethod
-    def edn(cls, edn, tags={}):
-        return cls(tokenize(edn), tags)
-    @classmethod
-    def reads(cls, edn, tags={}):
-        return cls.edn(edn, tags).parse()
-    def __init__(self, tokens, tags={}):
+    def reads(cls, edn, tags=None):
+        return cls(tokenize(edn), tags).parse()
+    def __init__(self, tokens, tags=None):
         self.tokens = tokens
-        self.tags = tags
+        self.tags = tags or {}
     def parse(self, tokens=None):
         for k, v in tokens or self.tokens:
             y = getattr(self, k)(v)
