@@ -48,7 +48,7 @@ ATOMS = re.compile(
                 |(?:['!$%&*<=>?A-Z_a-z] # Always valid at start. Not [:#\d].
                     |[-+.][:#'!$%&*+\-.<=>?A-Z_a-z] # [-+.] can't be followed by a \d
                  )[-+.\d:#'!$%&*<=>?A-Z_a-z]*)
-    |(?P<char>\\(?:newline|return|space|tab|u[\dA-Fa-f]{4}|\S))
+    |(?P<_char>\\(?:newline|return|space|tab|u[\dA-Fa-f]{4}|\S))
     |(?P<_error>.)
     """
 )
@@ -98,6 +98,12 @@ class BaseEDN(metaclass=ABCMeta):
         return self.floatM(v[:-1]) if v.endswith('M') else self.float(v)
     def _int(self, v: str):
         return self.intN(v[:-1]) if v.endswith('N') else self.int(v)
+    def _char(self, v):
+        v = v[1:]
+        v = {'newline':'\n','return':'\r','space':' ','tab':'\t'}.get(v,v)
+        if v.startswith('u'):
+            v = ast.literal_eval(Rf"'\{v}'")
+        return self.char(v)
     def _parse(self, tokens=None):
         for k, v in tokens or self.tokens:
             y = getattr(self, k)(v)
@@ -168,12 +174,6 @@ class SimpleEDN(BaseEDN):
     bool = {'false':False, 'true':True}.get
     def nil(self, v):
         return None
-    def char(self, v):
-        v = v[1:]
-        v = {'newline':'\n','return':'\r','space':' ','tab':'\t'}.get(v,v)
-        if v.startswith('u'):
-            v = ast.literal_eval(Rf"'\{v}'")
-        return v
 
 class AdvancedEDN(SimpleEDN):
     """Handles more cases, using only standard-library types.
