@@ -36,8 +36,8 @@ TOKENS = re.compile(
 )
 ATOMS = re.compile(
     r"""(?x)
-    (?P<int>[-+]?(?:\d|[1-9]\d+)N?)
-    |(?P<float>
+    (?P<_int>[-+]?(?:\d|[1-9]\d+)N?)
+    |(?P<_float>
       [-+]?(?:\d|[1-9]\d+)
       (?:.\d+)?
       (?:[eE][-+]?\d+)?
@@ -120,11 +120,21 @@ class BaseEDN(metaclass=ABCMeta):
     @abstractmethod
     def string(self, v: str):
         ...
+    def _int(self, v: str):
+        return self.intN(v[:-1]) if v.endswith('N') else self.int(v)
     @abstractmethod
     def int(self, v: str):
         ...
     @abstractmethod
+    def intN(self, v: str):
+        ...
+    def _float(self, v: str):
+        return self.floatM(v[:-1]) if v.endswith('M') else self.float(v)
+    @abstractmethod
     def float(self, v: str):
+        ...
+    @abstractmethod
+    def floatM(self, v: str):
         ...
     @abstractmethod
     def keyword(self, v: str):
@@ -181,9 +191,8 @@ class SimpleEDN(BaseEDN):
         raise ValueError(f'Unknown tag {tag}')
     def string(self, v):
         return ast.literal_eval(v.replace('\n',R'\n'))
-    def int(self, v: str):
-        return int(re.sub(r'N$', '', v))
-    float = float
+    int = intN = int
+    float = floatM = float
     keyword = symbol = str
     bool = {'false':False, 'true':True}.get
     def nil(self, v):
@@ -218,17 +227,8 @@ class AdvancedEDN(SimpleEDN):
     """
     set = frozenset
     vector = tuple
-    def float(self, v):
-        """M-floats map to Decimal, which have exact precision.
-        >>> edn = '1020304050.1020304050 1020304050.1020304050M'
-        >>> [*AdvancedEDN.reads(edn)]
-        [1020304050.1020304, Decimal('1020304050.1020304050')]
-        >>> [*AdvancedEDN.reads('4.2 4.2e-1M 4.20E+2')]
-        [4.2, Decimal('0.42'), 420.0]
-        """
-        if v.endswith('M'):
-            return Decimal(v[:-1])
-        return float(v)
+    floatM = Decimal
+    bool = keyword = symbol = partial(getattr, sentinel)
     def symbol(self, v):
         """
         Symbol and keyword types map to `unittest.mock.sentinel`, a
@@ -265,7 +265,7 @@ class AdvancedEDN(SimpleEDN):
     bool = keyword = symbol
 
 class LiteralEDN(SimpleEDN):
-    """Full EDN parser, targeting only Python literal types.
+    """Round-tripping EDN parser, targeting only Python literal types.
 
     Parses data that might not round-trip as Ellipsis groups.
     EDN lists still map to tuples. This is unambiguous because Ellipsis
@@ -326,12 +326,23 @@ class LiteralEDN(SimpleEDN):
             return ..., int(v[:-1])
         return int(v)
     def float(self, v):
-        """Parses an EDN float as a float and a precise EDN float (M
-        suffix) as an Ellipsis group containing a float and a string.
+        """Parses an EDN float as an Ellipsis group containing a float.
+
+        If precise (M suffix), also contains a string.
+        >>> [*LiteralEDN.reads('.42 .42M')]
+        [(Ellipsis, 42), (Ellipsis, .42, '.42')]
+
+        Python has a perfectly good double-precision float type, but
+        because EDN equality is different, it would coaus collections
+        to fail to round-trip in some cases.
+        >>> next(SimpleEDN.reads('#{1 1.0}'))
+        {1}
+
+        LiteralEDN can handle this without loss.
+        >>> next(LiteralEDN.reads('#{1 1.0 1N 1M}'))
+        (Ellipsis, {1, (Ellipsis, 1.0)})
         """
-        if v.endswith('M'):
-            return ..., float(v[:-1]), v[:-1]
-        return float(v)
+        return ..., float(v[:-1]), v
     def symbol(self, v):
         return bytes(v, encoding='ascii')
     keyword = symbol
@@ -358,23 +369,25 @@ class LiteralEDN(SimpleEDN):
         return ..., bytes(tag, encoding='ascii'), v
 
 class PyrEDN(AdvancedEDN):
-    """Full EDN parser with Prysistent data structures.
+    """EDN parser with Prysistent data structures.
 
-    These fit EDN much better that Python's builtin collection types."""
+    These fit EDN much better that Python's builtin collection types.
+    Not guaranteed to round-trip."""
     set = staticmethod(pset)
     map = staticmethod(pmap)
     list = staticmethod(plist)
-    vector = pvector
+    vector = pvector  # nondescriptor
+    bool = SimpleEDN.bool
 
 class HisspEDN(PyrEDN):
-    """Parses to Hissp data. Allows Hissp programs to be written in EDN."""
+    """Parses to Hissp. Allows Python programs to be written in EDN."""
     list = tuple
     def string(self, v):
         v = v.replace('\n',R'\n')
         v = ast.literal_eval(v)
         return f'({repr(v)})'
     keyword = symbol = str
-    bool = SimpleEDN.bool
+    # bool = SimpleEDN.bool
 
 if __name__ == '__main__':
     doctest.testmod()
