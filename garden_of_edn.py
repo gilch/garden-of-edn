@@ -132,14 +132,14 @@ class BaseEDN:
     def map(self, elements): return self.list(elements)
     def cmap(self, elements): return self.list(elements)
     symbol = str
-    def string(self, v: str): return self.symbol(repr(v))
+    def string(self, v: str): return self.symbol(v)
     def keyword(self, v: str): return self.symbol(v)
     def bool(self, v: str): return self.symbol(v)
     def nil(self, v: str): return self.symbol(v)
     def float(self, v: str): return self.symbol(v)
     # The remainder don't fall back to symbol directly.
     def floatM(self, v: str): return self.float(v)
-    def int(self, v: str): return self.float(v)
+    def int(self, v: str): return self.float(v)  # As ClojureScript.
     def intN(self, v: str): return self.int(v)
     def char(self, v: str): return self.string(v)
 
@@ -168,8 +168,9 @@ class SimpleEDN(BaseEDN):
     Mixing numeric type keys or set elements is inadvisable per the EDN
     spec, so this is rarely an issue in practice, but Python's equality
     semantics differ from EDN's: numeric types are equal when they
-    have the same value (and bools are treated as 1-bit ints).
-    ClojureScript has similar problems, treating all numbers as floats.
+    have the same value (and bools are treated as 1-bit ints),
+    regardless of type and precision. ClojureScript has a similar
+    problem, treating all numbers as floats.
     >>> next(SimpleEDN(R'{false 1,0 2,0N 3,0.0 4,0M 5}'))
     {'x': 2, 0: 5}
 
@@ -182,7 +183,7 @@ class SimpleEDN(BaseEDN):
     (set, dict, and list) are unhashable, and therefore invalid in sets
     and as keys. In practice, most EDN data doesn't do this; keys are
     nearly always keywords or strings, but in those rare cases, this
-    parser won't work.
+    parser will fall back to tuples.
     """
     set = set
     map = dict
