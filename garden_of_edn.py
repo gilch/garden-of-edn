@@ -202,14 +202,14 @@ class NaturalEDN(BaseEDN):
     symbol = str
     nil = bool = {'false':False, 'true':True}.get
 
-class AdvancedEDN(NaturalEDN):
+class StandardEDN(NaturalEDN):
     """Handles more cases, using only standard-library types.
 
     But at the cost of being a little harder to use than NaturalEDN.
     EDN set and vector types now map to frozenset and tuple,
     respectively, which are hashable as long as their elements are,
     allowing them to be used as keys and in sets.
-    >>> [*AdvancedEDN.reads('#{#{}} {[1 2] 3}')]
+    >>> [*StandardEDN.reads('#{#{}} {[1 2] 3}')]
     [frozenset({frozenset()}), {(1, 2): 3}]
 
     This means that vectors and lists are no longer distinguishable, but
@@ -227,9 +227,9 @@ class AdvancedEDN(NaturalEDN):
     always produces the same object. Using the same type for these
     two is allowed by the spec, because they remain distinguishable
     by the leading colon.
-    >>> next(AdvancedEDN.reads(':foo'))
+    >>> next(StandardEDN.reads(':foo'))
     sentinel.:foo
-    >>> _ is next(AdvancedEDN.reads(':foo'))
+    >>> _ is next(StandardEDN.reads(':foo'))
     True
 
     Python has a perfectly good bool type, but because EDN equality
@@ -242,9 +242,9 @@ class AdvancedEDN(NaturalEDN):
     {0: 2, 1: 3}
 
     EDN doesn't consider these keys equal, so data was lost.
-    AdvancedEDN can handle this without loss, by using the same
+    StandardEDN can handle this without loss, by using the same
     sentinel types for booleans as well.
-    >>> next(AdvancedEDN.reads('{0 0, 1 1, false 2, true 3}'))
+    >>> next(StandardEDN.reads('{0 0, 1 1, false 2, true 3}'))
     {0: 0, 1: 1, sentinel.false: 2, sentinel.true: 3}
 
     There is no abiguity with symbols, as ``false`` and ``true`` are
@@ -270,10 +270,10 @@ class PyrMixin:
 class NaturalPyrEDN(PyrMixin, NaturalEDN):
     pass
 
-class AdvancedPyrEDN(PyrMixin, AdvancedEDN):
+class StandardPyrEDN(PyrMixin, StandardEDN):
     pass
 
-class HisspEDN(AdvancedPyrEDN):
+class HisspEDN(StandardPyrEDN):
     """Parses to Hissp. Allows Python programs to be written in EDN."""
     list = tuple
     def string(self, v):
