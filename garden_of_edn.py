@@ -27,7 +27,10 @@ TOKENS = re.compile(
     |(?P<_map>{)
     |(?P<_list>\()
     |(?P<_vector>\[)
-    |(?P<_tag>\#[^\W\d_][-+.:#*!?$%&=<>\w]*)
+    |(?P<_tag>
+      \#[^\W\d_]  # Tags must start with # followed by an alphabetic.
+      [-+.:#*!?$%&=<>\w]*  # Any number of any symbol characters.
+     )
     |(?P<_string>
       "  # Open quote.
         (?:[^"\\]  # Any non-magic character.
