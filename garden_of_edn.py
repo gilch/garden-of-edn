@@ -150,7 +150,7 @@ class BaseEDN:
     def intN(self, v: str): return self.int(v)
     def char(self, v: str): return self.string(v)
 
-class SimpleEDN(BaseEDN):
+class NaturalEDN(BaseEDN):
     R"""Simple EDN parser.
 
     Renders each EDN type as the most natural equivalent Python type,
@@ -159,14 +159,14 @@ class SimpleEDN(BaseEDN):
     The 20% solution for 80% of use cases. Does not implement the full
     EDN spec, but should have no trouble parsing a typical .edn config
     file.
-    >>> [*SimpleEDN.reads(R'42 4.2 true nil')]
+    >>> [*NaturalEDN.reads(R'42 4.2 true nil')]
     [42, 4.2, True, None]
 
     However, this means it throws away information and can't round-trip
     back to the same EDN. Keywords, strings, symbols, and characters all
     become strings, because idiomatic Python uses the str type for all
     of these use cases. ClojureScript will also use strings for chars.
-    >>> [*SimpleEDN.reads(R'"foo" :foo foo \x')]
+    >>> [*NaturalEDN.reads(R'"foo" :foo foo \x')]
     ['foo', ':foo', 'foo', 'x']
 
     If this is a problem for your use case, you can override one of the
@@ -178,11 +178,11 @@ class SimpleEDN(BaseEDN):
     have the same value (and bools are treated as 1-bit ints),
     regardless of type and precision. ClojureScript has a similar
     problem, treating all numbers as floats.
-    >>> next(SimpleEDN(R'{false 1,0 2,0N 3,0.0 4,0M 5}'))
+    >>> next(NaturalEDN(R'{false 1,0 2,0N 3,0.0 4,0M 5}'))
     {'x': 2, 0: 5}
 
     Collections simply use the Python collection with the same brackets.
-    >>> [*SimpleEDN.reads(R'#{1}{2 3}(4)[5]')]
+    >>> [*NaturalEDN.reads(R'#{1}{2 3}(4)[5]')]
     [{1}, {2: 3}, (4,), [5]]
 
     EDN's collections are immutable, and are valid elements in EDN's set
@@ -202,10 +202,10 @@ class SimpleEDN(BaseEDN):
     symbol = str
     nil = bool = {'false':False, 'true':True}.get
 
-class AdvancedEDN(SimpleEDN):
+class AdvancedEDN(NaturalEDN):
     """Handles more cases, using only standard-library types.
 
-    But at the cost of being a little harder to use than SimpleEDN.
+    But at the cost of being a little harder to use than NaturalEDN.
     EDN set and vector types now map to frozenset and tuple,
     respectively, which are hashable as long as their elements are,
     allowing them to be used as keys and in sets.
@@ -238,7 +238,7 @@ class AdvancedEDN(SimpleEDN):
 
     True is a special case of 1 and False 0 in Python, so the first
     values were overwritten.
-    >>> next(SimpleEDN.reads('{0 0, 1 1, false 2, true 3}'))
+    >>> next(NaturalEDN.reads('{0 0, 1 1, false 2, true 3}'))
     {0: 2, 1: 3}
 
     EDN doesn't consider these keys equal, so data was lost.
@@ -267,7 +267,7 @@ class PyrMixin:
     list = staticmethod(plist)
     vector = pvector  # nondescriptor
 
-class SimplePyrEDN(PyrMixin, SimpleEDN):
+class NaturalPyrEDN(PyrMixin, NaturalEDN):
     pass
 
 class AdvancedPyrEDN(PyrMixin, AdvancedEDN):
@@ -281,7 +281,7 @@ class HisspEDN(AdvancedPyrEDN):
         v = ast.literal_eval(v)
         return f'({repr(v)})'
     keyword = str
-    bool = SimpleEDN.bool
+    bool = NaturalEDN.bool
     def symbol(self, v):
         if v=='&':
             return ':'
