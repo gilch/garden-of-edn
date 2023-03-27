@@ -121,7 +121,7 @@ class BaseEDN:
     def _parse(self, tokens=None):
         for k, v in tokens or self.tokens:
             y = getattr(self, k)(v)
-            if k!='discard':
+            if k!='_discard':
                 yield y
     # The remainder are meant for overrides.
     def tag(self, tag, v: str): raise KeyError(v)
