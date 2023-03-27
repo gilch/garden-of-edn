@@ -124,7 +124,7 @@ class BaseEDN:
             if k!='_discard':
                 yield y
     # The remainder are meant for overrides.
-    def tag(self, tag, v: str): raise KeyError(v)
+    def tag(self, tag, v: str): raise KeyError(tag)
     list = tuple
     def vector(self, elements): return self.list(elements)
     def set(self, elements): return self.list(elements)
