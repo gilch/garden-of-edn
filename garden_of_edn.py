@@ -15,6 +15,7 @@ from datetime import datetime
 from decimal import Decimal
 from functools import partial
 from itertools import takewhile
+from operator import methodcaller
 from typing import Iterator
 from unittest.mock import sentinel
 from uuid import UUID
@@ -298,6 +299,7 @@ class StandardEDN(NaturalEDN):
     floatM = Decimal
     symbol = partial(getattr, sentinel)
     nil = bool = {'false':b'', 'true':sentinel.true}.get
+    tag = methodcaller
 
 class PyrMixin:
     """Mixin to make an EDN parser use Pyrsistent data structures.
