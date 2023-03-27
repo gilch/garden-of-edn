@@ -3,6 +3,9 @@
 
 These parsers are not validators. Behavior when given invalid EDN is
 undefined. EDN is not especially well-specified to begin with.
+
+These parsers are not serializers. They read EDN and render it as Python
+objects; they don't serialize Python objects into EDN format.
 """
 import ast
 import builtins
