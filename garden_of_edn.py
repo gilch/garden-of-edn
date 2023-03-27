@@ -35,7 +35,7 @@ TOKENS = re.compile(
     |(?P<_vector>\[)
     |(?P<_tag>
       \#[^\W\d_]  # Tags must start with # followed by an alphabetic.
-      [-+.:#*!?$%&=<>\w]*  # Any number of any symbol characters.
+      [-+.:#*!?$%&=<>/\w]*  # Any number of any symbol characters.
      )
     |(?P<_string>
       "  # Open quote.
@@ -59,14 +59,14 @@ ATOMS = re.compile(
     )
     |(?P<keyword> # Unclear from spec, but assume no empty EDN Keywords.
       :
-      [-+.#*!?$%&=<>\w] # Second character cannot be :.
-      [-+.:#*!?$%&=<>\w]*
+      [-+.#*!?$%&=<>/\w] # Second character cannot be :.
+      [-+.:#*!?$%&=<>/\w]*
      )
     |(?P<_symbol>
       [-+.]
-      |(?:(?:[*!?$%&=<>]|[^\W\d]) # Always valid at start. Not [:#\d].
-          |[-+.](?:[-+.:#*!?$%&=<>]|[^\W\d]) # [-+.] can't be followed by a \d
-       )[-+.:#*!?$%&=<>\w]*)
+      |(?:(?:[*!?$%&=<>/]|[^\W\d]) # Always valid at start. Not [:#\d].
+          |[-+.](?:[-+.:#*!?$%&=<>/]|[^\W\d]) # [-+.] can't be followed by a \d
+       )[-+.:#*!?$%&=<>/\w]*)
     |(?P<_char>\\(?:newline|return|space|tab|u[\dA-Fa-f]{4}|\S))
     |(?P<_error>.)
     """
