@@ -75,6 +75,13 @@ def tokenize(edn):
         yield k, v
 
 class BaseEDN:
+    """BaseEDN is highly customizable EDN parser.
+
+    It is not an especially useful EDN parser in its own right, but does
+    function. By default, all atoms render to strings and all
+    collections render to tuples. This is intended as fallback behavior.
+    Typical usage will override methods to render more specific types.
+    """
     @classmethod
     def reads(cls, edn, tags=None):
         return cls(tokenize(edn), tags)._parse()
