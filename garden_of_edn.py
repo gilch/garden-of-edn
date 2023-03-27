@@ -88,10 +88,18 @@ class BaseEDN:
     def _discard(self, v):
         next(self._parse())
     def _set(self, v):
-        return self.set(self._parse_until('_rcub'))
+        elements = self._parse_until('_rcub')
+        try:
+            return self.set(elements)
+        except TypeError:
+            return self.cset(elements)
     def _map(self, v):
-        kvs = self._parse_until('_rcub')
-        return self.map((k, next(kvs)) for k in kvs)
+        ikvs = self._parse_until('_rcub')
+        pairs = [(k,next(ikvs)) for k in ikvs]
+        try:
+            return self.map(pairs)
+        except TypeError:
+            return self.cmap(pairs)
     def _list(self, v):
         return self.list(self._parse_until('_rpar'))
     def _vector(self, v):
@@ -118,9 +126,11 @@ class BaseEDN:
     # The remainder are meant for overrides.
     def tag(self, tag, v: str): raise KeyError(v)
     list = tuple
-    def set(self, elements): return self.list(elements)
-    def map(self, elements): return self.list(elements)
     def vector(self, elements): return self.list(elements)
+    def set(self, elements): return self.list(elements)
+    def cset(self, elements): return self.list(elements)
+    def map(self, elements): return self.list(elements)
+    def cmap(self, elements): return self.list(elements)
     symbol = str
     def string(self, v: str): return self.symbol(repr(v))
     def keyword(self, v: str): return self.symbol(v)
