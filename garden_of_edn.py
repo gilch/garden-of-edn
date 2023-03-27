@@ -253,18 +253,23 @@ class AdvancedEDN(SimpleEDN):
         """
         return getattr(sentinel, v)
 
-class PyrEDN(AdvancedEDN):
-    """EDN parser with Prysistent data structures.
+class PyrMixin:
+    """Mixin to make an EDN parser use Pyrsistent data structures.
 
     These fit EDN much better that Python's builtin collection types.
-    Not guaranteed to round-trip."""
+    """
     set = staticmethod(pset)
     map = staticmethod(pmap)
     list = staticmethod(plist)
     vector = pvector  # nondescriptor
-    bool = SimpleEDN.bool
 
-class HisspEDN(PyrEDN):
+class SimplePyrEDN(PyrMixin, SimpleEDN):
+    pass
+
+class AdvancedPyrEDN(PyrMixin, AdvancedEDN):
+    pass
+
+class HisspEDN(AdvancedPyrEDN):
     """Parses to Hissp. Allows Python programs to be written in EDN."""
     list = tuple
     def string(self, v):
