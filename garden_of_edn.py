@@ -1,3 +1,9 @@
+# Copyright 2022, 2023 Matthew Egan Odendahl
+"""A Garden of EDN parsers. Bringing the Python to EDN.
+
+These parsers are not validators. Behavior when given invalid EDN is
+undefined. EDN is not especially well-specified to begin with.
+"""
 import ast
 import builtins
 import doctest
