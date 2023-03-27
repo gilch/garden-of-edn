@@ -276,8 +276,12 @@ class HisspEDN(AdvancedPyrEDN):
         v = v.replace('\n',R'\n')
         v = ast.literal_eval(v)
         return f'({repr(v)})'
-    keyword = symbol = str
-    # bool = SimpleEDN.bool
+    keyword = str
+    bool = SimpleEDN.bool
+    def symbol(self, v):
+        if v=='&':
+            return ':'
+        return v
 
 if __name__ == '__main__':
     doctest.testmod()
