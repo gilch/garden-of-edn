@@ -214,46 +214,41 @@ class AdvancedEDN(SimpleEDN):
     is an immutable view, it is still not hashable because the
     underlying mapping may still be mutable.
 
-    Also see the docstrings for the float and symbol methods.
+    Symbol and keyword types map to `unittest.mock.sentinel`, a
+    standard-library type meant for unit testing, but with the
+    interning semantics desired for keywords: the same keyword
+    always produces the same object. Using the same type for these
+    two is allowed by the spec, because they remain distinguishable
+    by the leading colon.
+    >>> next(AdvancedEDN.reads(':foo'))
+    sentinel.:foo
+    >>> _ is next(AdvancedEDN.reads(':foo'))
+    True
+
+    Python has a perfectly good bool type, but because EDN equality
+    is different, it would cause collections to fail to round-trip
+    in some cases.
+
+    True is a special case of 1 and False 0 in Python, so the first
+    values were overwritten.
+    >>> next(SimpleEDN.reads('{0 0, 1 1, false 2, true 3}'))
+    {0: 2, 1: 3}
+
+    EDN doesn't consider these keys equal, so data was lost.
+    AdvancedEDN can handle this without loss, by using the same
+    sentinel types for booleans as well.
+    >>> next(AdvancedEDN.reads('{0 0, 1 1, false 2, true 3}'))
+    {0: 0, 1: 1, sentinel.false: 2, sentinel.true: 3}
+
+    There is no abiguity with symbols, as ``false`` and ``true`` are
+    always interpreted as booleans in EDN, so this can round-trip.
+    Beware that ``sentinel.false`` is still truthy in Python.
     """
     set = frozenset
     vector = tuple
     floatM = Decimal
     symbol = partial(getattr, sentinel)
     nil = bool = {'false':b'', 'true':sentinel.true}.get
-    def symbol(self, v):
-        """
-        Symbol and keyword types map to `unittest.mock.sentinel`, a
-        standard-library type meant for unit testing, but with the
-        interning semantics desired for keywords: the same keyword
-        always produces the same object. Using the same type for these
-        two is allowed by the spec, because they remain distinguishable
-        by the leading colon.
-        >>> next(AdvancedEDN.reads(':foo'))
-        sentinel.:foo
-        >>> _ is next(AdvancedEDN.reads(':foo'))
-        True
-
-        Python has a perfectly good bool type, but because EDN equality
-        is different, it would cause collections to fail to round-trip
-        in some cases.
-
-        True is a special case of 1 and False 0 in Python, so the first
-        values were overwritten.
-        >>> next(SimpleEDN.reads('{0 0, 1 1, false 2, true 3}'))
-        {0: 2, 1: 3}
-
-        EDN doesn't consider these keys equal, so data was lost.
-        AdvancedEDN can handle this without loss, by using the same
-        sentinel types for booleans as well.
-        >>> next(AdvancedEDN.reads('{0 0, 1 1, false 2, true 3}'))
-        {0: 0, 1: 1, sentinel.false: 2, sentinel.true: 3}
-
-        There is no abiguity with symbols, as ``false`` and ``true`` are
-        always interpreted as booleans in EDN, so this can round-trip.
-        Beware that ``sentinel.false`` is still truthy in Python.
-        """
-        return getattr(sentinel, v)
 
 class PyrMixin:
     """Mixin to make an EDN parser use Pyrsistent data structures.
