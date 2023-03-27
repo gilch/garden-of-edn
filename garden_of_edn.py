@@ -11,11 +11,13 @@ import ast
 import builtins
 import doctest
 import re
+from datetime import datetime
 from decimal import Decimal
 from functools import partial
 from itertools import takewhile
 from typing import Iterator
 from unittest.mock import sentinel
+from uuid import UUID
 
 from pyrsistent import plist, pmap, pset, pvector
 
@@ -98,7 +100,9 @@ class BaseEDN:
     The entry point is the reads classmethod. It yields Python objects
     rendered from the parser and takes an EDN string and optionally a
     mapping of tag names (without the leading #) to tag rendering
-    functions. These must accept the next Python object parsed from the
+    functions. These are added to a dict containing rendering functions
+    for #inst and #uuid, the EDN builtin tags (which can be overriden).
+    Tag renderers must accept the next Python object parsed from the
     EDN and render a Python object appropriate for the tag. The tag
     method is used as a fallback when no tag rendering function can be
     found. By default, it raises a KeyError for the tag name.
@@ -123,11 +127,12 @@ class BaseEDN:
     They all fall back to list (which defaults to tuple).
     """
     @classmethod
-    def reads(cls, edn, tags=None):
+    def reads(cls, edn, tags=()):
         return cls(tokenize(edn), tags)._parse()
-    def __init__(self, tokens, tags=None):
+    def __init__(self, tokens, tags=()):
         self.tokens = tokens
-        self.tags = tags or {}
+        self.tags = dict(uuid=UUID, inst=datetime.fromisoformat)
+        self.tags.update(tags)
     def _tokens_until(self, k):
         return takewhile(lambda kv: kv[0] != k, self.tokens)
     def _parse_until(self, k):
