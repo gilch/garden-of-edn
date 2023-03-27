@@ -192,7 +192,7 @@ class SimpleEDN(BaseEDN):
     int = int
     float = float
     symbol = str
-    nil = bool = {'false':False, 'true':True, 'nil':None}.get
+    nil = bool = {'false':False, 'true':True}.get
 
 class AdvancedEDN(SimpleEDN):
     """Handles more cases, using only standard-library types.
