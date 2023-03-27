@@ -165,7 +165,7 @@ class NaturalEDN(BaseEDN):
     However, this means it throws away information and can't round-trip
     back to the same EDN. Keywords, strings, symbols, and characters all
     become strings, because idiomatic Python uses the str type for all
-    of these use cases. ClojureScript will also use strings for chars.
+    of these use cases. (ClojureScript will also use strings for chars.)
     >>> [*NaturalEDN.reads(R'"foo" :foo foo \x')]
     ['foo', ':foo', 'foo', 'x']
 
@@ -178,8 +178,8 @@ class NaturalEDN(BaseEDN):
     have the same value (and bools are treated as 1-bit ints),
     regardless of type and precision. ClojureScript has a similar
     problem, treating all numbers as floats.
-    >>> next(NaturalEDN(R'{false 1,0 2,0N 3,0.0 4,0M 5}'))
-    {'x': 2, 0: 5}
+    >>> next(NaturalEDN.reads(R'{false 1, 0 2, 0N 3, 0.0 4, 0M 5}'))
+    {False: 5}
 
     Collections simply use the Python collection with the same brackets.
     >>> [*NaturalEDN.reads(R'#{1}{2 3}(4)[5]')]
@@ -243,13 +243,10 @@ class StandardEDN(NaturalEDN):
 
     EDN doesn't consider these keys equal, so data was lost.
     StandardEDN can handle this without loss, by using the same
-    sentinel types for booleans as well.
+    sentinel type for true as well. sentinel.false could also be used
+    without abiguity, but b'' has the advantage of being falsy.
     >>> next(StandardEDN.reads('{0 0, 1 1, false 2, true 3}'))
-    {0: 0, 1: 1, sentinel.false: 2, sentinel.true: 3}
-
-    There is no abiguity with symbols, as ``false`` and ``true`` are
-    always interpreted as booleans in EDN, so this can round-trip.
-    Beware that ``sentinel.false`` is still truthy in Python.
+    {0: 0, 1: 1, b'': 2, sentinel.true: 3}
     """
     set = frozenset
     vector = tuple
