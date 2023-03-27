@@ -11,6 +11,7 @@ import re
 from decimal import Decimal
 from functools import partial
 from itertools import takewhile
+from typing import Iterator
 from unittest.mock import sentinel
 
 from pyrsistent import plist, pmap, pset, pvector
@@ -84,12 +85,39 @@ def tokenize(edn):
         yield k, v
 
 class BaseEDN:
-    """BaseEDN is highly customizable EDN parser.
+    """BaseEDN is a highly customizable EDN parser.
 
     It is not an especially useful EDN parser in its own right, but does
     function. By default, all atoms render to strings and all
     collections render to tuples. This is intended as fallback behavior.
     Typical usage will override methods to render more specific types.
+
+    The entry point is the reads classmethod. It yields Python objects
+    rendered from the parser and takes an EDN string and optionally a
+    mapping of tag names (without the leading #) to tag rendering
+    functions. These must accept the next Python object parsed from the
+    EDN and render a Python object appropriate for the tag. The tag
+    method is used as a fallback when no tag rendering function can be
+    found. By default, it raises a KeyError for the tag name.
+
+    Each of the built-in EDN atom types has a corresponding method:
+    symbol, string, keyword, bool, nil, float, floatM, int, intN & char.
+    They must accept the token string and render a Python object.
+    The "N" and "M" are removed. Char tokens are preprocessed per the
+    spec. The precise types fall back to the imprecise types by default.
+    char falls back to string. int falls back to float. The remainder
+    fall back to symbol (which defaults to str).
+
+    Each of the built-in EDN collection types has a corresponding method:
+    list, vector, set & map.
+    They must accept an iterator of parsed elements and render a Python
+    collection of them. The iterator for map yields key-value pairs (as
+    is most natural for Python), rather than the alternating key and
+    value form as written in EDN maps.
+    There are also cset and cmap fallbacks in case of unhashable types
+    in set or map (usually the result of composite keys, hence the
+    names) which must raise a TypeError in that case.
+    They all fall back to list (which defaults to tuple).
     """
     @classmethod
     def reads(cls, edn, tags=None):
@@ -142,11 +170,11 @@ class BaseEDN:
     # The remainder are meant for overrides.
     def tag(self, tag, v: str): raise KeyError(tag)
     list = tuple
-    def vector(self, elements): return self.list(elements)
-    def set(self, elements): return self.list(elements)
-    def cset(self, elements): return self.list(elements)
-    def map(self, elements): return self.list(elements)
-    def cmap(self, elements): return self.list(elements)
+    def vector(self, elements: Iterator): return self.list(elements)
+    def set(self, elements: Iterator): return self.list(elements)
+    def map(self, elements: Iterator): return self.list(elements)
+    def cset(self, elements: Iterator): return self.list(elements)
+    def cmap(self, elements: Iterator): return self.list(elements)
     symbol = str
     def string(self, v: str): return self.symbol(v)
     def keyword(self, v: str): return self.symbol(v)
@@ -199,7 +227,7 @@ class NaturalEDN(BaseEDN):
     (set, dict, and list) are unhashable, and therefore invalid in sets
     and as keys. In practice, most EDN data doesn't do this; keys are
     nearly always keywords or strings, but in those rare cases, this
-    parser will fall back to tuples.
+    parser will fall back to using tuples rather than maps or sets.
     """
     set = set
     map = dict
