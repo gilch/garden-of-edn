@@ -219,6 +219,7 @@ class AdvancedEDN(SimpleEDN):
     vector = tuple
     floatM = Decimal
     symbol = partial(getattr, sentinel)
+    nil = bool = {'false':b'', 'true':sentinel.true}.get
     def symbol(self, v):
         """
         Symbol and keyword types map to `unittest.mock.sentinel`, a
