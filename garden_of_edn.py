@@ -290,7 +290,8 @@ class StandardEDN(NaturalEDN):
     EDN doesn't consider these keys equal, so data was lost.
     StandardEDN can handle this without loss, by using the same
     sentinel type for true as well. sentinel.false could also be used
-    without abiguity, but b'' has the advantage of being falsy.
+    without abiguity, but b'' has the advantage of being falsy, while
+    still never comparing equal to any standard EDN type.
     >>> next(StandardEDN.reads('{0 0, 1 1, false 2, true 3}'))
     {0: 0, 1: 1, b'': 2, sentinel.true: 3}
     """
