@@ -20,6 +20,7 @@ from typing import Iterator
 from unittest.mock import sentinel
 from uuid import UUID
 
+import hissp
 from pyrsistent import plist, pmap, pset, pvector
 
 TOKENS = re.compile(
@@ -320,10 +321,17 @@ class StandardPyrEDN(PyrMixin, StandardEDN):
 
 class HisspEDN(StandardPyrEDN):
     """Parses to Hissp. Allows Python programs to be written in EDN."""
+    @classmethod
+    def compiles(cls, edn, tags=(), ns=None):
+        ns = ns or {}
+        return (hissp.readerless(x, ns) for x in cls.reads(edn, tags))
+    @classmethod
+    def execs(cls, edn, tags=(), ns=None):
+        ns = ns or {}
+        for x in cls.compiles(edn, tags, ns):
+            exec(x, ns)
     list = tuple
     def string(self, v):
-        v = v.replace('\n',R'\n')
-        v = ast.literal_eval(v)
         return f'({repr(v)})'
     keyword = str
     bool = NaturalEDN.bool
