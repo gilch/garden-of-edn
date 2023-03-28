@@ -323,11 +323,11 @@ class HisspEDN(StandardPyrEDN):
     """Parses to Hissp. Allows Python programs to be written in EDN."""
     @classmethod
     def compiles(cls, edn, tags=(), ns=None):
-        ns = ns or {}
+        ns = {} if ns is None else ns
         return (hissp.readerless(x, ns) for x in cls.reads(edn, tags))
     @classmethod
     def execs(cls, edn, tags=(), ns=None):
-        ns = ns or {}
+        ns = {} if ns is None else ns
         for x in cls.compiles(edn, tags, ns):
             exec(x, ns)
     list = tuple
