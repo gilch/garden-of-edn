@@ -335,6 +335,7 @@ class HisspEDN(StandardPyrEDN):
         return (hissp.readerless(x, ns) for x in cls.reads(edn, tags))
     @classmethod
     def execs(cls, edn, tags=(), ns=None):
+        """Compiles and executes each Hissp form."""
         ns = {} if ns is None else ns
         for x in cls.compiles(edn, tags, ns):
             exec(x, ns)
