@@ -338,7 +338,7 @@ class HisspEDN(StandardPyrEDN):
     def symbol(self, v):
         if v=='.':
             return ':'
-        return v
+        return hissp.munger.munge(v)
 
 if __name__ == '__main__':
     doctest.testmod()
