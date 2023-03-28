@@ -336,7 +336,7 @@ class HisspEDN(StandardPyrEDN):
     keyword = str
     bool = NaturalEDN.bool
     def symbol(self, v):
-        if v=='&':
+        if v=='.':
             return ':'
         return v
 
