@@ -160,7 +160,7 @@ class BaseEDN:
     def _tag(self, v: str):
         return self.tags.get(v[1:], partial(self.tag, v[1:]))(next(self._parse()))
     def _string(self, v):
-        return ast.literal_eval(v.replace('\n',R'\n'))
+        return self.string(ast.literal_eval(v.replace('\n',R'\n')))
     def _float(self, v: str):
         return self.floatM(v[:-1]) if v.endswith('M') else self.float(v)
     def _int(self, v: str):
