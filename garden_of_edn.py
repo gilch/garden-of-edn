@@ -323,6 +323,14 @@ class HisspEDN(StandardPyrEDN):
     """Parses to Hissp. Allows Python programs to be written in EDN."""
     @classmethod
     def compiles(cls, edn, tags=(), ns=None):
+        """Yields the Python compilation of each Hissp form.
+
+        edn is interpreted as Hissp. Reading uses the provided tags and
+        compilation uses the provided ns.
+        Compiles the forms without executing them.
+        Forms that have not been executed in the ns cannot affect
+        the compilation of subsequent forms.
+        """
         ns = {} if ns is None else ns
         return (hissp.readerless(x, ns) for x in cls.reads(edn, tags))
     @classmethod
