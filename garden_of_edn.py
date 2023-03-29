@@ -13,7 +13,8 @@ import doctest
 import re
 from datetime import datetime
 from decimal import Decimal
-from functools import partial
+from functools import partial, reduce
+from importlib import import_module
 from itertools import takewhile
 from operator import methodcaller
 from typing import Iterator
@@ -21,6 +22,8 @@ from unittest.mock import sentinel
 from uuid import UUID
 
 import hissp
+from hissp import compiler
+from hissp.munger import munge
 from pyrsistent import plist, pmap, pset, pvector
 
 TOKENS = re.compile(
@@ -128,11 +131,10 @@ class BaseEDN:
     names) which must raise a TypeError in that case.
     They all fall back to list (which defaults to tuple).
     """
-    @classmethod
-    def reads(cls, edn, tags=()):
-        return cls(tokenize(edn), tags)._parse()
-    def __init__(self, tokens, tags=()):
-        self.tokens = tokens
+    def read(self):
+        return self._parse()
+    def __init__(self, edn, tags=(), **kwargs):
+        self.tokens = tokenize(edn)
         self.tags = dict(uuid=UUID, inst=datetime.fromisoformat)
         self.tags.update(tags)
     def _tokens_until(self, k):
@@ -178,7 +180,7 @@ class BaseEDN:
             if k!='_discard':
                 yield y
     # The remainder are meant for overrides.
-    def tag(self, tag, v: str): raise KeyError(tag)
+    def tag(self, tag, element): raise KeyError(tag)
     list = tuple
     def vector(self, elements: Iterator): return self.list(elements)
     def set(self, elements: Iterator): return self.list(elements)
@@ -206,14 +208,14 @@ class NaturalEDN(BaseEDN):
     The 20% solution for 80% of use cases. Does not implement the full
     EDN spec, but should have no trouble parsing a typical .edn config
     file.
-    >>> [*NaturalEDN.reads(R'42 4.2 true nil')]
+    >>> [*NaturalEDN(R'42 4.2 true nil').read()]
     [42, 4.2, True, None]
 
     However, this means it throws away information and can't round-trip
     back to the same EDN. Keywords, strings, symbols, and characters all
     become strings, because idiomatic Python uses the str type for all
     of these use cases. (ClojureScript will also use strings for chars.)
-    >>> [*NaturalEDN.reads(R'"foo" :foo foo \x')]
+    >>> [*NaturalEDN(R'"foo" :foo foo \x').read()]
     ['foo', ':foo', 'foo', 'x']
 
     If this is a problem for your use case, you can override one of the
@@ -225,11 +227,11 @@ class NaturalEDN(BaseEDN):
     have the same value (and bools are treated as 1-bit ints),
     regardless of type and precision. ClojureScript has a similar
     problem, treating all numbers as floats.
-    >>> next(NaturalEDN.reads(R'{false 1, 0 2, 0N 3, 0.0 4, 0M 5}'))
+    >>> next(NaturalEDN(R'{false 1, 0 2, 0N 3, 0.0 4, 0M 5}').read())
     {False: 5}
 
     Collections simply use the Python collection with the same brackets.
-    >>> [*NaturalEDN.reads(R'#{1}{2 3}(4)[5]')]
+    >>> [*NaturalEDN(R'#{1}{2 3}(4)[5]').read()]
     [{1}, {2: 3}, (4,), [5]]
 
     EDN's collections are immutable, and are valid elements in EDN's set
@@ -256,7 +258,7 @@ class StandardEDN(NaturalEDN):
     EDN set and vector types now map to frozenset and tuple,
     respectively, which are hashable as long as their elements are,
     allowing them to be used as keys and in sets.
-    >>> [*StandardEDN.reads('#{#{}} {[1 2] 3}')]
+    >>> [*StandardEDN('#{#{}} {[1 2] 3}').read()]
     [frozenset({frozenset()}), {(1, 2): 3}]
 
     This means that vectors and lists are no longer distinguishable, but
@@ -274,9 +276,9 @@ class StandardEDN(NaturalEDN):
     always produces the same object. Using the same type for these
     two is allowed by the spec, because they remain distinguishable
     by the leading colon.
-    >>> next(StandardEDN.reads(':foo'))
+    >>> next(StandardEDN(':foo').read())
     sentinel.:foo
-    >>> _ is next(StandardEDN.reads(':foo'))
+    >>> _ is next(StandardEDN(':foo').read())
     True
 
     Python has a perfectly good bool type, but because EDN equality
@@ -285,7 +287,7 @@ class StandardEDN(NaturalEDN):
 
     True is a special case of 1 and False 0 in Python, so the first
     values were overwritten.
-    >>> next(NaturalEDN.reads('{0 0, 1 1, false 2, true 3}'))
+    >>> next(NaturalEDN('{0 0, 1 1, false 2, true 3}').read())
     {0: 2, 1: 3}
 
     EDN doesn't consider these keys equal, so data was lost.
@@ -293,7 +295,7 @@ class StandardEDN(NaturalEDN):
     sentinel type for true as well. sentinel.false could also be used
     without abiguity, but b'' has the advantage of being falsy, while
     still never comparing equal to any standard EDN type.
-    >>> next(StandardEDN.reads('{0 0, 1 1, false 2, true 3}'))
+    >>> next(StandardEDN('{0 0, 1 1, false 2, true 3}').read())
     {0: 0, 1: 1, b'': 2, sentinel.true: 3}
     """
     set = frozenset
@@ -321,33 +323,61 @@ class StandardPyrEDN(PyrMixin, StandardEDN):
 
 class HisspEDN(StandardPyrEDN):
     """Parses to Hissp. Allows Python programs to be written in EDN."""
-    @classmethod
-    def compiles(cls, edn, tags=(), ns=None):
+    def compile(self):
         """Yields the Python compilation of each Hissp form.
 
-        edn is interpreted as Hissp. Reading uses the provided tags and
+        EDN is interpreted as Hissp. Reading uses the provided tags and
         compilation uses the provided ns.
         Compiles the forms without executing them.
         Forms that have not been executed in the ns cannot affect
         the compilation of subsequent forms.
         """
-        ns = {} if ns is None else ns
-        return (hissp.readerless(x, ns) for x in cls.reads(edn, tags))
-    @classmethod
-    def execs(cls, edn, tags=(), ns=None):
+        return (hissp.readerless(x, self.ns) for x in self.read())
+    def exec(self):
         """Compiles and executes each Hissp form."""
-        ns = {} if ns is None else ns
-        for x in cls.compiles(edn, tags, ns):
-            exec(x, ns)
+        for x in self.compile():
+            exec(x, self.ns)
+    def __init__(self, edn, tags=(), *, ns=None, **kwargs):
+        self.ns = {} if ns is None else ns
+        super().__init__(edn, tags, **kwargs)
     list = tuple
     def string(self, v):
         return f'({repr(v)})'
     keyword = str
     bool = NaturalEDN.bool
     def symbol(self, v):
-        if v=='.':
+        if v != '/':
+            v = v.replace('/', '..')
+        if v == '.':
             return ':'
-        return hissp.munger.munge(v)
+        return munge(v)
+    def tag(self, tag, element):
+        extras = ()
+        if tag == 'hissp/.':  # inject
+            return eval(hissp.readerless(element, self.ns), self.ns)
+        if tag == 'hissp/!':  # extra
+            tag, *extras, element = element
+        if tag == 'hissp/$':  # munge
+            return munge(ast.literal_eval(element))
+        if '/' in tag:  # assume imported
+            module, function = tag.split("/")
+            if re.match(rf"{compiler.MACROS}\.[^.]+$", function):
+                function += munge("#")
+            f = reduce(getattr, function.split("."), import_module(module))
+        else:  # assume local
+            f = getattr(self.ns[compiler.MACROS], munge(f'{tag}#'))
+        args, kwargs = hissp.reader._parse_extras(extras)
+        token = compiler.NS.set(self.ns)
+        try:
+            return f(element, *args, **kwargs)
+        finally:
+            compiler.NS.reset(token)
 
 if __name__ == '__main__':
     doctest.testmod()
+
+# TODO: moar doctests
+# FIX: ns coalesce bug in readerless
+# TODO: make _parse_extras public
+# TODO: import munge in hissp.
+# TODO: HisspEDN repl?
