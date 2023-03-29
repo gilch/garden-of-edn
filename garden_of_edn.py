@@ -344,7 +344,7 @@ class HisspEDN(StandardPyrEDN):
     def string(self, v):
         return f'({repr(v)})'
     keyword = str
-    bool = NaturalEDN.bool
+    nil = bool = {'true': True, 'false': False, 'nil': ()}
     def symbol(self, v):
         if v != '/':
             v = v.replace('/', '..')
