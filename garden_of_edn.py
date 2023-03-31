@@ -22,7 +22,7 @@ from unittest.mock import sentinel
 from uuid import UUID
 
 import hissp
-from hissp import compiler
+from hissp.compiler import MACROS, Compiler
 from hissp.munger import munge
 from pyrsistent import plist, pmap, pset, pvector
 
@@ -332,13 +332,19 @@ class HisspEDN(StandardPyrEDN):
         Forms that have not been executed in the ns cannot affect
         the compilation of subsequent forms.
         """
-        return (hissp.readerless(x, self.ns) for x in self.read())
-    def exec(self):
-        """Compiles and executes each Hissp form."""
-        for x in self.compile():
-            exec(x, self.ns)
-    def __init__(self, edn, tags=(), *, ns=None, **kwargs):
-        self.ns = {} if ns is None else ns
+        for x in self.read(): yield self.compiler.compile([x])
+    def exec(self) -> str:
+        """Compiles and executes each Hissp form.
+
+        Returns the compiled Python.
+        """
+        try:
+            self.compiler.evaluate = True
+            return self.compiler.compile(self.read())
+        finally:
+            self.compiler.evaluate = False
+    def __init__(self, edn, tags=(), *, qualname='__main__', ns=None, **kwargs):
+        self.compiler = Compiler(qualname=qualname, ns=ns, evaluate=False)
         super().__init__(edn, tags, **kwargs)
     list = tuple
     def string(self, v):
@@ -354,24 +360,21 @@ class HisspEDN(StandardPyrEDN):
     def tag(self, tag, element):
         extras = ()
         if tag == 'hissp/.':  # inject
-            return eval(hissp.readerless(element, self.ns), self.ns)
+            return eval(hissp.readerless(element, self.compiler.ns), self.compiler.ns)
         if tag == 'hissp/!':  # extra
             tag, *extras, element = element
         if tag == 'hissp/$':  # munge
             return munge(ast.literal_eval(element))
         if '/' in tag:  # assume imported
             module, function = tag.split("/")
-            if re.match(rf"{compiler.MACROS}\.[^.]+$", function):
+            if re.match(rf"{MACROS}\.[^.]+$", function):
                 function += munge("#")
             f = reduce(getattr, function.split("."), import_module(module))
         else:  # assume local
-            f = getattr(self.ns[compiler.MACROS], munge(f'{tag}#'))
+            f = getattr(self.compiler.ns[MACROS], munge(f'{tag}#'))
         args, kwargs = hissp.reader._parse_extras(extras)
-        token = compiler.NS.set(self.ns)
-        try:
+        with self.compiler.macro_context():
             return f(element, *args, **kwargs)
-        finally:
-            compiler.NS.reset(token)
 
 if __name__ == '__main__':
     doctest.testmod()
@@ -380,4 +383,7 @@ if __name__ == '__main__':
 # FIX: ns coalesce bug in readerless
 # TODO: make _parse_extras public
 # TODO: import munge in hissp.
+# TODO: import Compiler in hissp.
 # TODO: HisspEDN repl?
+# TODO: basic pretty printer
+# TODO: serializers?
