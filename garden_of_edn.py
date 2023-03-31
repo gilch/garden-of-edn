@@ -365,13 +365,11 @@ class HisspEDN(StandardPyrEDN):
             tag, *extras, element = element
         if tag == 'hissp/$':  # munge
             return munge(ast.literal_eval(element))
-        if '/' in tag:  # assume imported
-            module, function = tag.split("/")
-            if re.match(rf"{MACROS}\.[^.]+$", function):
-                function += munge("#")
-            f = reduce(getattr, function.split("."), import_module(module))
-        else:  # assume local
-            f = getattr(self.compiler.ns[MACROS], munge(f'{tag}#'))
+        *module, function = tag.split("/")
+        if not module or re.match(rf"{MACROS}\.[^.]+$", function):
+            function += munge("#")
+        module = import_module(*module) if module else self.compiler.ns[MACROS]
+        f = reduce(getattr, function.split("."), module)
         args, kwargs = hissp.reader._parse_extras(extras)
         with self.compiler.macro_context():
             return f(element, *args, **kwargs)
