@@ -15,6 +15,7 @@ import ast
 import builtins
 import doctest
 import re
+from abc import ABCMeta, abstractmethod
 from datetime import datetime
 from decimal import Decimal
 from fractions import Fraction
@@ -99,14 +100,8 @@ def tokenize(edn):
             raise ValueError(m.pos)
         yield k, v
 
-class BaseEDN:
-    """BaseEDN is a highly customizable EDN parser.
-
-    While not an especially useful EDN parser in its own right,
-    it does function. By default, all atoms render to strings and all
-    collections render to tuples. This is intended as fallback
-    behavior. Typical usage will override methods to render more
-    specific types.
+class AbstractEDN(metaclass=ABCMeta):
+    """AbstractEDN is a highly customizable EDN parser base class.
 
     Takes an EDN string and optionally a mapping of tag names
     (without the leading #) to tag rendering functions. These are used
@@ -117,25 +112,23 @@ class BaseEDN:
     method is used as a fallback when no tag rendering function can
     be found. By default, it raises a KeyError for the tag name.
 
-    Each of the built-in EDN atom types has a corresponding method:
-    symbol, string, keyword, bool, nil, float, floatM, int, intN &
-    char. They must accept the token string and render a Python
-    object. The "N" and "M" are removed. Char tokens are preprocessed
-    per the spec. The precise numeric types fall back to the
-    imprecise types by default. char falls back to string. int falls
-    back to float. The remainder fall back to symbol (which defaults
-    to str).
+    Each of the built-in EDN atom types has a corresponding abstract
+    method: symbol, string, keyword, bool, nil, float, floatM, int,
+    intN and char. They must accept the token string and render a
+    Python object. The "N" and "M" are removed. Char tokens are
+    preprocessed per the spec.
 
-    Each built-in EDN collection types has a corresponding method.
+    Each EDN collection type has a corresponding abstract method.
 
     The set and map methods must accept a tuple of parsed elements
     and are expected to render a suitable collection of them. There
     are also cset and cmap fallbacks in case of unhashable types in a
     set or map (usually the result of composite keys, hence the
     names) which must have raised a TypeError in the map or set
-    methods. The tuple passed to map (and cmap) contains key-value
-    pairs (as is most natural for Python), rather than alternating
-    key and value elements as written in EDN maps.
+    methods. The default implementations of cset and cmap fall back
+    to using the vector method. The tuple passed to map (and cmap)
+    contains key-value pairs (as is most natural for Python), rather
+    than alternating key and value elements as written in EDN maps.
 
     Parsed objects meant for map keys or set elements are passed to the
     key method, whose return value is used instead. By default, key
@@ -144,8 +137,6 @@ class BaseEDN:
 
     The list and vector methods must accept an iterator of the parsed
     elements and are expected to render a suitable collection of them.
-
-    The collection methods fall back to list (which defaults to tuple).
     """
     def read(self):
         return self._parse()
@@ -198,25 +189,38 @@ class BaseEDN:
     # The remainder are meant for overrides.
     def key(self, k): return k
     def tag(self, tag, element): raise KeyError(tag)
-    list = tuple
-    def vector(self, elements: Iterator): return self.list(elements)
-    def set(self, elements: tuple): return self.list(elements)
-    def map(self, elements: tuple): return self.list(elements)
-    def cset(self, elements: tuple): return self.list(elements)
-    def cmap(self, elements: tuple): return self.list(elements)
-    symbol = str
-    def string(self, v: str): return self.symbol(v)
-    def keyword(self, v: str): return self.symbol(v)
-    def bool(self, v: str): return self.symbol(v)
-    def nil(self, v: str): return self.symbol(v)
-    def float(self, v: str): return self.symbol(v)
-    # The remainder don't fall back to symbol directly.
-    def floatM(self, v: str): return self.float(v)
-    def int(self, v: str): return self.float(v)  # As ClojureScript.
-    def intN(self, v: str): return self.int(v)
-    def char(self, v: str): return self.string(v)
+    def cset(self, elements: tuple): return self.vector(elements)
+    def cmap(self, elements: tuple): return self.vector(elements)
+    @abstractmethod
+    def list(self, elements: Iterator): ...
+    @abstractmethod
+    def vector(self, elements: Iterator): ...
+    @abstractmethod
+    def set(self, elements: tuple): ...
+    @abstractmethod
+    def map(self, elements: tuple): ...
+    @abstractmethod
+    def symbol(self, v: str): ...
+    @abstractmethod
+    def string(self, v: str): ...
+    @abstractmethod
+    def keyword(self, v: str): ...
+    @abstractmethod
+    def bool(self, v: str): ...
+    @abstractmethod
+    def nil(self, v: str): ...
+    @abstractmethod
+    def float(self, v: str): ...
+    @abstractmethod
+    def floatM(self, v: str): ...
+    @abstractmethod
+    def int(self, v: str): ...
+    @abstractmethod
+    def intN(self, v: str): ...
+    @abstractmethod
+    def char(self, v: str): ...
 
-class BuiltinEDN(BaseEDN):
+class BuiltinEDN(AbstractEDN):
     R"""Simple EDN parser.
 
     Renders each EDN type as the most natural equivalent builtin type,
@@ -262,10 +266,10 @@ class BuiltinEDN(BaseEDN):
     map = dict
     list = tuple
     vector = builtins.list
-    string = str
-    int = int
-    float = float
-    symbol = str
+    char = string = str
+    intN = int = int
+    floatM = float = float
+    keyword = symbol = str
     nil = bool = {'false':False, 'true':True}.get
 
 class StandardEDN(BuiltinEDN):
@@ -326,7 +330,7 @@ class StandardEDN(BuiltinEDN):
     # The above thee are sensible choices, although Decimal is not in
     # builtins. The remainder are unnatural, but work.
     intN = Fraction  # Denominator 1.
-    symbol = partial(getattr, sentinel)  # Meant for tests only.
+    keyword = symbol = partial(getattr, sentinel)  # Meant for tests only.
     nil = bool = {'false':b'', 'true':sentinel.true}.get
     tag = methodcaller  # Defers a call, but won't actually be a method.
 
