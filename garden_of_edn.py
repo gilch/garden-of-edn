@@ -368,7 +368,7 @@ class StandardEDN(BuiltinEDN):
     nil = bool = {'false':b'', 'true':sentinel.true}.get
     tag = methodcaller  # Defers a call, but won't actually be a method.
 
-class HashBox:
+class Box:
     """Wrapper to make keys behave like EDN.
 
     Python types have two issues representing EDN keys.
@@ -376,14 +376,14 @@ class HashBox:
     First, EDN maps use different equality semantics. In Python,
     numbers are equal if their values are equal, even if they have
     different types (and bools are also numbers). In EDN, numbers
-    must be of the same type to be equal. A HashBox is equal to an
-    object only if the object is also of type HashBox, and their key
+    must be of the same type to be equal. A Box is equal to an
+    object only if the object is also of type Box, and their key
     objects are of exactly the same type and are equal.
-    >>> HashBox(1) == HashBox(1)
+    >>> Box(1) == Box(1)
     True
     >>> 1 == 1.0 # int and float can compare equal
     True
-    >>> HashBox(1) == HashBox(1.0)  # But not when boxed.
+    >>> Box(1) == Box(1.0)  # But not when boxed.
     False
 
     (This is typically not an issue for numbers in practice as mixing
@@ -392,13 +392,13 @@ class HashBox:
 
     Second, for most EDN collection types, the most natural Python
     analogue is unhashable. The result of custom tags may likewise be
-    unhashable. If its key is unhashable, HashBox will fall back to
+    unhashable. If its key is unhashable, Box will fall back to
     using the hash of its type, a characteristic assumed to be
     immutable.
-    >>> hash(HashBox({})) == hash(dict)
+    >>> hash(Box({})) == hash(dict)
     True
 
-    If a hash table contains many HashBox keys, it may suffer
+    If a hash table contains many Box keys, it may suffer
     degraded performance as keys cannot be dispersed over as many
     buckets when they produce equal hashes. This is likely no worse
     than the alternative of scanning through a list for a key,
@@ -406,7 +406,7 @@ class HashBox:
     keys are also dispersed by value.
 
     Also, mutating anything used as a hash table key is a bad idea,
-    liable to cause surprises. HashBox enables this and can do nothing
+    liable to cause surprises. Box enables this and can do nothing
     to prevent it. Use with care.
     """
     def __init__(self, k):
@@ -423,17 +423,17 @@ class HashBox:
         return f'{type(self).__name__}({self.k!r})'
 
 class BoxedEDN(StandardEDN):
-    """Uses HashBox for keys.
+    """Uses Box for keys.
 
     Unlike the simpler parsers, there are no cases expected to lose
     data. This a round-tripping parser.
 
     >>> next(BoxedEDN(R'{{1 1} 2, {2 2} 4}').read())
-    {HashBox({HashBox(1): 1}): 2, HashBox({HashBox(2): 2}): 4}
+    {Box({Box(1): 1}): 2, Box({Box(2): 2}): 4}
     >>> next(BoxedEDN(R'#{{1 1} 2 {2 2} 4}').read())
-    frozenset({HashBox(2), HashBox({HashBox(1): 1}), HashBox(4), HashBox({HashBox(2): 2})})
-    >>> next(BoxedEDN('#{0 0N 0M 0.0 false}').read())
-    frozenset({HashBox(0), HashBox(Fraction(0, 1)), HashBox(False), HashBox(Decimal('0')), HashBox(0.0)})
+    frozenset({Box(2), Box({Box(1): 1}), Box(4), Box({Box(2): 2})})
+    >>> len(next(BoxedEDN('#{0 0N 0M 0.0 false}').read())) == 5
+    True
 
     Due to the use of a non-standard type, unlike StandardEDN,
     unpickling the results in another environment may require a
@@ -444,7 +444,7 @@ class BoxedEDN(StandardEDN):
     types are otherwise as StandardEDN.
     """
     bool = BuiltinEDN.bool
-    key = HashBox
+    key = Box
 
 class LilithHissp(BuiltinEDN):
     """Parses to Hissp. Allows Python programs to be written in EDN.
