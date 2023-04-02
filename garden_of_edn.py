@@ -442,6 +442,8 @@ class BoxedEDN(StandardEDN):
     Bools use BuiltinEDN's method. They will get wrapped anyway,
     so there's no reason not to use the more natural types. Rendered
     types are otherwise as StandardEDN.
+    >>> next(BoxedEDN(R'[0 0N 0M 0.0 false False]').read())
+    (0, Fraction(0, 1), Decimal('0'), 0.0, False, sentinel.False)
     """
     bool = BuiltinEDN.bool
     key = Box
@@ -514,12 +516,18 @@ class PyrMixin(AbstractEDN):
 class PyrBuiltinEDN(PyrMixin, BuiltinEDN):
     """Adds Pyrsistent collections to BuiltinEDN.
 
+    >>> next(PyrBuiltinEDN(R'{[1] (1), #{2} 2N}').read())
+    pmap({pset([2]): 2, pvector([1]): plist([1])})
+
     Unpickling the results in another environment requires
     Pyrsistent, but not Garden of EDN.
     """
 
 class PyrStandardEDN(PyrMixin, StandardEDN):
     """Adds Pyrsistent collections to StandardEDN.
+
+    >>> next(PyrStandardEDN(R'{[1] (1), #{2} 2N}').read())
+    pmap({pset([2]): Fraction(2, 1), pvector([1]): plist([1])})
 
     Unpickling the results in another environment requires
     Pyrsistent, but not Garden of EDN.
@@ -528,10 +536,17 @@ class PyrStandardEDN(PyrMixin, StandardEDN):
 class PyrBoxedEDN(PyrMixin, BoxedEDN):
     """Adds Pyrsistent collections to BoxedEDN
 
+    >>> next(PyrBoxedEDN(R'#{{} [] ()}').read())
+    pset([Box(pmap({})), Box(plist([])), Box(pvector([]))])
+
     Pyrsistent collections are already hashable (if their elements
     are), but the equality problem remains and tags may still generate
     unhashable keys, so boxed keys are still required for a round-trip
     guarantee.
+    >>> next(PyrBoxedEDN(R'#{0 0N 0M 0.0}').read())
+    pset([Box(0), Box(Fraction(0, 1)), Box(Decimal('0')), Box(0.0)])
+    >>> next(PyrStandardEDN(R'#{0 0N 0M 0.0}').read())
+    pset([0])
 
     Unpickling the results in another environment requires
     Pyrsistent and Garden of EDN.
