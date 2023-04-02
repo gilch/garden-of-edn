@@ -391,7 +391,7 @@ class BoxedEDN(StandardEDN):
     bool = BuiltinEDN.bool
     key = HashBox
 
-class HisspEDN(BuiltinEDN):
+class LilithHissp(BuiltinEDN):
     """Parses to Hissp. Allows Python programs to be written in EDN.
 
     The compiled output doesn't necessitate any installation to run.
@@ -460,19 +460,21 @@ class PyrMixin:
 class PyrBuiltinEDN(PyrMixin, BuiltinEDN):
     """Adds pyrsistent collections to BuiltinEDN.
 
-    Unpickling requires Pyrsistent, but not Garden of EDN.
+    Unpickling the results in another environment requires
+    Pyrsistent, but not Garden of EDN.
     """
 
 class PyrStandardEDN(PyrMixin, StandardEDN):
-    """Adds pyrsistent collections to StandardEDN
+    """Adds pyrsistent collections to StandardEDN.
 
-    Unpickling requires Pyrsistent, but not Garden of EDN.
+    Unpickling the results in another environment requires
+    Pyrsistent, but not Garden of EDN.
     """
 
-class PyrHisspEDN(PyrMixin, HisspEDN):
-    """Adds pyrsistent collections to HisspEDN, except lists.
+class PandoraHissp(PyrMixin, LilithHissp):
+    """Adds pyrsistent collections to LilithHissp, except lists.
 
-    The compiled output is expected to require pyrsistent to run.
+    The compiled output is expected to require Pyrsistent to run.
     """
     list = tuple
 
