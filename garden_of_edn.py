@@ -501,7 +501,7 @@ class LilithHissp(BuiltinEDN):
         with self.compiler.macro_context():
             return f(element, *args, **kwargs)
 
-class PyrMixin:
+class PyrMixin(AbstractEDN):
     """Mixin to make an EDN parser use Pyrsistent data structures.
 
     These fit EDN much better that Python's builtin collection types.
