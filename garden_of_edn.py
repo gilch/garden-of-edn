@@ -17,6 +17,7 @@ import doctest
 import re
 from datetime import datetime
 from decimal import Decimal
+from fractions import Fraction
 from functools import partial, reduce
 from importlib import import_module
 from itertools import takewhile
@@ -101,39 +102,50 @@ def tokenize(edn):
 class BaseEDN:
     """BaseEDN is a highly customizable EDN parser.
 
-    It is not an especially useful EDN parser in its own right, but does
-    function. By default, all atoms render to strings and all
-    collections render to tuples. This is intended as fallback behavior.
-    Typical usage will override methods to render more specific types.
+    While not an especially useful EDN parser in its own right,
+    it does function. By default, all atoms render to strings and all
+    collections render to tuples. This is intended as fallback
+    behavior. Typical usage will override methods to render more
+    specific types.
 
-    The entry point is the reads classmethod. It yields Python objects
-    rendered from the parser and takes an EDN string and optionally a
-    mapping of tag names (without the leading #) to tag rendering
-    functions. These are added to a dict containing rendering functions
-    for #inst and #uuid, the EDN builtin tags (which can be overriden).
-    Tag renderers must accept the next Python object parsed from the
-    EDN and render a Python object appropriate for the tag. The tag
-    method is used as a fallback when no tag rendering function can be
-    found. By default, it raises a KeyError for the tag name.
+    Takes an EDN string and optionally a mapping of tag names
+    (without the leading #) to tag rendering functions. These are used
+    to update a dict containing rendering functions for #inst and
+    #uuid, the EDN builtin tags (which can be overriden). Tag
+    renderers must accept the next Python object parsed from the EDN
+    and render a Python object appropriate for the tag. The tag
+    method is used as a fallback when no tag rendering function can
+    be found. By default, it raises a KeyError for the tag name.
 
     Each of the built-in EDN atom types has a corresponding method:
-    symbol, string, keyword, bool, nil, float, floatM, int, intN & char.
-    They must accept the token string and render a Python object.
-    The "N" and "M" are removed. Char tokens are preprocessed per the
-    spec. The precise types fall back to the imprecise types by default.
-    char falls back to string. int falls back to float. The remainder
-    fall back to symbol (which defaults to str).
+    symbol, string, keyword, bool, nil, float, floatM, int, intN &
+    char. They must accept the token string and render a Python
+    object. The "N" and "M" are removed. Char tokens are preprocessed
+    per the spec. The precise numeric types fall back to the
+    imprecise types by default. char falls back to string. int falls
+    back to float. The remainder fall back to symbol (which defaults
+    to str).
 
-    Each of the built-in EDN collection types has a corresponding method:
-    list, vector, set & map.
-    They must accept an iterator of parsed elements and render a Python
-    collection of them. The iterator for map yields key-value pairs (as
-    is most natural for Python), rather than the alternating key and
-    value form as written in EDN maps.
-    There are also cset and cmap fallbacks in case of unhashable types
-    in set or map (usually the result of composite keys, hence the
-    names) which must raise a TypeError in that case.
-    They all fall back to list (which defaults to tuple).
+    Each built-in EDN collection types has a corresponding method.
+
+    The set and map methods must accept a tuple of parsed elements
+    and are expected to render a suitable collection of them. There
+    are also cset and cmap fallbacks in case of unhashable types in a
+    set or map (usually the result of composite keys, hence the
+    names) which must have raised a TypeError in the map or set
+    methods. The tuple passed to map (and cmap) contains key-value
+    pairs (as is most natural for Python), rather than alternating
+    key and value elements as written in EDN maps.
+
+    Parsed objects meant for map keys or set elements are passed to the
+    key method, whose return value is used instead. By default, key
+    returns the object unchanged, but overrides may replace an
+    unhashable object with a hashable one, if desired.
+
+    The list and vector methods must accept an iterator of the parsed
+    elements and are expected to render a suitable collection of them.
+
+    The collection methods fall back to list (which defaults to tuple).
     """
     def read(self):
         return self._parse()
@@ -148,14 +160,14 @@ class BaseEDN:
     def _discard(self, v):
         next(self._parse())
     def _set(self, v):
-        elements = self._parse_until('_rcub')
+        elements = tuple(self.key(k) for k in self._parse_until('_rcub'))
         try:
             return self.set(elements)
         except TypeError:
             return self.cset(elements)
     def _map(self, v):
         ikvs = self._parse_until('_rcub')
-        pairs = [(k,next(ikvs)) for k in ikvs]
+        pairs = tuple((self.key(k),next(ikvs)) for k in ikvs)
         try:
             return self.map(pairs)
         except TypeError:
@@ -184,13 +196,14 @@ class BaseEDN:
             if k!='_discard':
                 yield y
     # The remainder are meant for overrides.
+    def key(self, k): return k
     def tag(self, tag, element): raise KeyError(tag)
     list = tuple
     def vector(self, elements: Iterator): return self.list(elements)
-    def set(self, elements: Iterator): return self.list(elements)
-    def map(self, elements: Iterator): return self.list(elements)
-    def cset(self, elements: Iterator): return self.list(elements)
-    def cmap(self, elements: Iterator): return self.list(elements)
+    def set(self, elements: tuple): return self.list(elements)
+    def map(self, elements: tuple): return self.list(elements)
+    def cset(self, elements: tuple): return self.list(elements)
+    def cmap(self, elements: tuple): return self.list(elements)
     symbol = str
     def string(self, v: str): return self.symbol(v)
     def keyword(self, v: str): return self.symbol(v)
@@ -259,6 +272,10 @@ class StandardEDN(NaturalEDN):
     """Handles more cases, using only standard-library types.
 
     But at the cost of being a little harder to use than NaturalEDN.
+
+    Using only standard library types means pickled results can be
+    unpickled in an environment without garden_of_edn installed.
+
     EDN set and vector types now map to frozenset and tuple,
     respectively, which are hashable as long as their elements are,
     allowing them to be used as keys and in sets.
@@ -305,28 +322,78 @@ class StandardEDN(NaturalEDN):
     set = frozenset
     vector = tuple
     floatM = Decimal
+    intN = Fraction
     symbol = partial(getattr, sentinel)
     nil = bool = {'false':b'', 'true':sentinel.true}.get
     tag = methodcaller
 
-class PyrMixin:
-    """Mixin to make an EDN parser use Pyrsistent data structures.
+class HashBox:
+    """Wrapper to make keys behave like EDN.
 
-    These fit EDN much better that Python's builtin collection types.
+    Python types have two issues representing EDN keys.
+
+    First, EDN maps use different equality semantics. In Python,
+    numbers are equal if their values are equal, even if they have
+    different types (and bools are also numbers). In EDN, numbers
+    must be of the same type to be equal. A HashBox is equal to an
+    object only if the object is also of type HashBox, and their key
+    objects are of exactly the same type and are equal.
+
+    (This is typically not an issue for numbers in practice as mixing
+    numeric types like this is not recommended in EDN. ClojureScript
+    also has trouble with this. Booleans are a different story.)
+
+    Second, for most EDN collection types, the most natural Python
+    analogue is unhashable. The result of custom tags may likewise be
+    unhashable. If its key is unhashable, HashBox will fall back to
+    using the hash of its type, a characteristic assumed to be
+    immutable. If a hash table contains many HashBox keys, it may
+    suffer degraded performance as keys cannot be dispersed over as
+    many buckets when they produce equal hashes. This is likely no
+    worse than the alternative of scanning through an iterable for a
+    key, as they are at least dispersed by type, and any hashable
+    boxed keys are also dispersed by value.
+
+    Also, mutating anything used as a hash table key is a bad idea,
+    liable to cause surprises. HashBox enables this and can do nothing
+    to prevent it. Use with care.
     """
-    set = staticmethod(pset)
-    map = staticmethod(pmap)
-    list = staticmethod(plist)
-    vector = pvector  # nondescriptor
+    def __int__(self, k):
+        self.k = k
+    def __eq__(self, other):
+        return (type(self) is type(other)
+                and (type(self.k), self.k) == (type(other.k), other.k))
+    def __hash__(self):
+        try:
+            return hash(self.k)
+        except TypeError:
+            return hash(type(self.k))
+    def __repr__(self):
+        return f'{type(self).__name__}({self.k!r})'
 
-class NaturalPyrEDN(PyrMixin, NaturalEDN):
-    pass
+class BoxedEDN(StandardEDN):
+    """Uses HashBox for keys.
 
-class StandardPyrEDN(PyrMixin, StandardEDN):
-    pass
+    Unlike the simpler parsers, there are no cases expected to lose
+    data. This a round-tripping parser.
 
-class HisspEDN(StandardPyrEDN):
-    """Parses to Hissp. Allows Python programs to be written in EDN."""
+    Due to the use of a non-standard type, unlike StandardEDN,
+    unpickling the results in another environment may require a
+    Garden of EDN install there.
+
+    Bools use NaturalEDN's method. They will get wrapped anyway,
+    so there's no reason not to use the more natural types. Rendered
+    types are otherwise as StandardEDN.
+    """
+    bool = NaturalEDN.bool
+    key = HashBox
+
+class HisspEDN(NaturalEDN):
+    """Parses to Hissp. Allows Python programs to be written in EDN.
+
+    The compiled output doesn't necessitate any installation to run.
+    """
+    vector = builtins.list
     def compile(self):
         """Yields the Python compilation of each Hissp form.
 
@@ -350,11 +417,10 @@ class HisspEDN(StandardPyrEDN):
     def __init__(self, edn, tags=(), *, qualname='__main__', ns=None, **kwargs):
         self.compiler = Compiler(qualname=qualname, ns=ns, evaluate=False)
         super().__init__(edn, tags, **kwargs)
-    list = tuple
     def string(self, v):
         return f'({repr(v)})'
     keyword = str
-    nil = bool = NaturalEDN.bool
+    floatM = Decimal
     def symbol(self, v):
         if v != '/':
             v = v.replace('/', '..')
@@ -377,6 +443,29 @@ class HisspEDN(StandardPyrEDN):
         args, kwargs = hissp.reader._parse_extras(extras)
         with self.compiler.macro_context():
             return f(element, *args, **kwargs)
+
+class PyrMixin:
+    """Mixin to make an EDN parser use Pyrsistent data structures.
+
+    These fit EDN much better that Python's builtin collection types.
+    """
+    set = staticmethod(pset)
+    map = staticmethod(pmap)
+    list = staticmethod(plist)
+    vector = pvector  # nondescriptor
+
+class PyrNaturalEDN(PyrMixin, NaturalEDN):
+    pass
+
+class PyrStandardEDN(PyrMixin, StandardEDN):
+    pass
+
+class PyrHisspEDN(PyrMixin, HisspEDN):
+    """Adds pyrsistent collections to HisspEDN, except lists.
+
+    The compiled output is expected to require pyrsistent to run.
+    """
+    list = tuple
 
 if __name__ == '__main__':
     doctest.testmod()
