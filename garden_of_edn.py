@@ -260,7 +260,12 @@ class BuiltinEDN(AbstractEDN):
     (set, dict, and list) are unhashable, and therefore invalid in sets
     and as keys. In practice, most EDN data doesn't do this; keys are
     nearly always keywords or strings, but in those rare cases, this
-    parser will fall back to using tuples rather than maps or sets.
+    parser will fall back to using lists rather than dicts or sets.
+
+    >>> next(BuiltinEDN(R'{[1] 1, [2] 2}').read())
+    [([1], 1), ([2], 2)]
+    >>> next(BuiltinEDN(R'#{#{}}').read())
+    [set()]
     """
     set = set
     map = dict
@@ -284,24 +289,36 @@ class StandardEDN(BuiltinEDN):
     EDN set and vector types now map to frozenset and tuple,
     respectively, which are hashable as long as their elements are,
     allowing them to be used as keys and in sets.
-    >>> [*StandardEDN('#{#{}} {[1 2] 3}').read()]
-    [frozenset({frozenset()}), {(1, 2): 3}]
+    >>> next(StandardEDN(R'{[1] 1, (2) 2}').read())
+    {(1,): 1, (2,): 2}
+    >>> next(StandardEDN('#{#{}}').read())
+    frozenset({frozenset()})
 
     This means that vectors and lists are no longer distinguishable, but
     (in practice) this distinction usually doesn't matter. Having two
     sequence type literals is somewhat useful in Clojure, but redundant
-    in EDN. They compare equal when used in sets or as keys anyway.
+    in EDN. They compare equal when used in maps or sets anyway.
+    If this matters for your use case, you can override one of them.
 
-    EDN map types still map to dict. While the `types.MappingProxyType`
-    is an immutable view, it is still not hashable because the
-    underlying mapping may still be mutable.
+    EDN map types still render to dict. No hashable mapping type is
+    available in the standard library. While the
+    `types.MappingProxyType` is an immutable view, it is still not
+    hashable because the underlying mapping may still be mutable.
 
-    Symbol and keyword types map to `unittest.mock.sentinel`, a
-    standard-library type meant for unit testing, but with the
-    interning semantics desired for keywords: the same keyword
-    always produces the same object. Using the same type for these
-    two is allowed by the spec, because they remain distinguishable
-    by the leading colon.
+    List is still used as a fallback for unhashable elements.
+    There's not much point in using a tuple here, since a tuple with
+    an unhashable element is itself unhashable.
+    >>> next(StandardEDN(R'{{1 1} 2, {2 2} 4}').read())
+    [({1: 1}, 2), ({2: 2}, 4)]
+    >>> next(StandardEDN(R'#{{1 1} 2 {2 2} 4}').read())
+    [{1: 1}, 2, {2: 2}, 4]
+
+    Symbol and keyword types map to `unittest.mock.sentinel`,
+    a standard-library type meant for unit testing, but with the
+    interning semantics desired for keywords: the same keyword always
+    produces the same object. Using the same type for both is allowed
+    by the spec, because they remain distinguishable by the leading
+    colon.
     >>> next(StandardEDN(':foo').read())
     sentinel.:foo
     >>> _ is next(StandardEDN(':foo').read())
@@ -323,8 +340,25 @@ class StandardEDN(BuiltinEDN):
     still never comparing equal to any standard EDN type.
     >>> next(StandardEDN('{0 0, 1 1, false 2, true 3}').read())
     {0: 0, 1: 1, b'': 2, sentinel.true: 3}
+
+    The precision types are now distinguishable. A denominator-1
+    fraction is a bit less natural. Python 2 used to have a separate
+    int and long type, but now its int is arbitrary-precision and it
+    lacks a fixed-precision type. Because int is expected to be more
+    common than intN, it gets the builtin, and intN gets something
+    else.
+    >>> next(StandardEDN('[0 0N 0M 0.0]').read())
+    (0, Fraction(0, 1), Decimal('0'), 0.0)
+
+    However, any numeric type of the same value still compares equal.
+    Mixing numeric types in a hash table is inadvisable, per the EDN
+    spec, and ClojureScript has similar problems, so this is rarely
+    an issue in practice.
+    >>> next(StandardEDN('#{0 0N 0M 0.0}').read())
+    frozenset({0})
     """
     set = frozenset
+    cmap = cset = list
     vector = tuple
     floatM = Decimal
     # The above thee are sensible choices, although Decimal is not in
@@ -345,6 +379,12 @@ class HashBox:
     must be of the same type to be equal. A HashBox is equal to an
     object only if the object is also of type HashBox, and their key
     objects are of exactly the same type and are equal.
+    >>> HashBox(1) == HashBox(1)
+    True
+    >>> 1 == 1.0 # int and float can compare equal
+    True
+    >>> HashBox(1) == HashBox(1.0)  # But not when boxed.
+    False
 
     (This is typically not an issue for numbers in practice as mixing
     numeric types like this is not recommended in EDN. ClojureScript
@@ -354,18 +394,22 @@ class HashBox:
     analogue is unhashable. The result of custom tags may likewise be
     unhashable. If its key is unhashable, HashBox will fall back to
     using the hash of its type, a characteristic assumed to be
-    immutable. If a hash table contains many HashBox keys, it may
-    suffer degraded performance as keys cannot be dispersed over as
-    many buckets when they produce equal hashes. This is likely no
-    worse than the alternative of scanning through an iterable for a
-    key, as they are at least dispersed by type, and any hashable
-    boxed keys are also dispersed by value.
+    immutable.
+    >>> hash(HashBox({})) == hash(dict)
+    True
+
+    If a hash table contains many HashBox keys, it may suffer
+    degraded performance as keys cannot be dispersed over as many
+    buckets when they produce equal hashes. This is likely no worse
+    than the alternative of scanning through a list for a key,
+    as they are at least dispersed by type, and any hashable boxed
+    keys are also dispersed by value.
 
     Also, mutating anything used as a hash table key is a bad idea,
     liable to cause surprises. HashBox enables this and can do nothing
     to prevent it. Use with care.
     """
-    def __int__(self, k):
+    def __init__(self, k):
         self.k = k
     def __eq__(self, other):
         return (type(self) is type(other)
@@ -383,6 +427,13 @@ class BoxedEDN(StandardEDN):
 
     Unlike the simpler parsers, there are no cases expected to lose
     data. This a round-tripping parser.
+
+    >>> next(BoxedEDN(R'{{1 1} 2, {2 2} 4}').read())
+    {HashBox({HashBox(1): 1}): 2, HashBox({HashBox(2): 2}): 4}
+    >>> next(BoxedEDN(R'#{{1 1} 2 {2 2} 4}').read())
+    frozenset({HashBox(2), HashBox({HashBox(1): 1}), HashBox(4), HashBox({HashBox(2): 2})})
+    >>> next(BoxedEDN('#{0 0N 0M 0.0 false}').read())
+    frozenset({HashBox(0), HashBox(Fraction(0, 1)), HashBox(False), HashBox(Decimal('0')), HashBox(0.0)})
 
     Due to the use of a non-standard type, unlike StandardEDN,
     unpickling the results in another environment may require a
