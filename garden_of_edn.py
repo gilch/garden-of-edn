@@ -396,7 +396,6 @@ class LilithHissp(BuiltinEDN):
 
     The compiled output doesn't necessitate any installation to run.
     """
-    vector = builtins.list
     def compile(self):
         """Yields the Python compilation of each Hissp form.
 
