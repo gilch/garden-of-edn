@@ -457,21 +457,33 @@ class PyrMixin:
     vector = pvector  # nondescriptor
 
 class PyrBuiltinEDN(PyrMixin, BuiltinEDN):
-    """Adds pyrsistent collections to BuiltinEDN.
+    """Adds Pyrsistent collections to BuiltinEDN.
 
     Unpickling the results in another environment requires
     Pyrsistent, but not Garden of EDN.
     """
 
 class PyrStandardEDN(PyrMixin, StandardEDN):
-    """Adds pyrsistent collections to StandardEDN.
+    """Adds Pyrsistent collections to StandardEDN.
 
     Unpickling the results in another environment requires
     Pyrsistent, but not Garden of EDN.
     """
 
+class PyrBoxedEDN(PyrMixin, BoxedEDN):
+    """Adds Pyrsistent collections to BoxedEDN
+
+    Pyrsistent collections are already hashable (if their elements
+    are), but the equality problem remains and tags may still generate
+    unhashable keys, so boxed keys are still required for a round-trip
+    guarantee.
+
+    Unpickling the results in another environment requires
+    Pyrsistent and Garden of EDN.
+    """
+
 class PandoraHissp(PyrMixin, LilithHissp):
-    """Adds pyrsistent collections to LilithHissp, except lists.
+    """Adds Pyrsistent collections to LilithHissp, except lists.
 
     The compiled output is expected to require Pyrsistent to run.
     """
