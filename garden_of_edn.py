@@ -216,23 +216,23 @@ class BaseEDN:
     def intN(self, v: str): return self.int(v)
     def char(self, v: str): return self.string(v)
 
-class NaturalEDN(BaseEDN):
+class BuiltinEDN(BaseEDN):
     R"""Simple EDN parser.
 
-    Renders each EDN type as the most natural equivalent Python type,
+    Renders each EDN type as the most natural equivalent builtin type,
     making the resulting data easy to use from Python.
 
     The 20% solution for 80% of use cases. Does not implement the full
     EDN spec, but should have no trouble parsing a typical .edn config
     file.
-    >>> [*NaturalEDN(R'42 4.2 true nil').read()]
+    >>> [*BuiltinEDN(R'42 4.2 true nil').read()]
     [42, 4.2, True, None]
 
     However, this means it throws away information and can't round-trip
     back to the same EDN. Keywords, strings, symbols, and characters all
     become strings, because idiomatic Python uses the str type for all
     of these use cases. (ClojureScript will also use strings for chars.)
-    >>> [*NaturalEDN(R'"foo" :foo foo \x').read()]
+    >>> [*BuiltinEDN(R'"foo" :foo foo \x').read()]
     ['foo', ':foo', 'foo', 'x']
 
     If this is a problem for your use case, you can override one of the
@@ -244,11 +244,11 @@ class NaturalEDN(BaseEDN):
     have the same value (and bools are treated as 1-bit ints),
     regardless of type and precision. ClojureScript has a similar
     problem, treating all numbers as floats.
-    >>> next(NaturalEDN(R'{false 1, 0 2, 0N 3, 0.0 4, 0M 5}').read())
+    >>> next(BuiltinEDN(R'{false 1, 0 2, 0N 3, 0.0 4, 0M 5}').read())
     {False: 5}
 
     Collections simply use the Python collection with the same brackets.
-    >>> [*NaturalEDN(R'#{1}{2 3}(4)[5]').read()]
+    >>> [*BuiltinEDN(R'#{1}{2 3}(4)[5]').read()]
     [{1}, {2: 3}, (4,), [5]]
 
     EDN's collections are immutable, and are valid elements in EDN's set
@@ -268,10 +268,11 @@ class NaturalEDN(BaseEDN):
     symbol = str
     nil = bool = {'false':False, 'true':True}.get
 
-class StandardEDN(NaturalEDN):
+class StandardEDN(BuiltinEDN):
     """Handles more cases, using only standard-library types.
 
-    But at the cost of being a little harder to use than NaturalEDN.
+    But at the cost of being a little harder to use than BuiltinEDN.
+    More imports are used and some types are used in unnatural ways.
 
     Using only standard library types means pickled results can be
     unpickled in an environment without garden_of_edn installed.
@@ -308,7 +309,7 @@ class StandardEDN(NaturalEDN):
 
     True is a special case of 1 and False 0 in Python, so the first
     values were overwritten.
-    >>> next(NaturalEDN('{0 0, 1 1, false 2, true 3}').read())
+    >>> next(BuiltinEDN('{0 0, 1 1, false 2, true 3}').read())
     {0: 2, 1: 3}
 
     EDN doesn't consider these keys equal, so data was lost.
@@ -322,10 +323,12 @@ class StandardEDN(NaturalEDN):
     set = frozenset
     vector = tuple
     floatM = Decimal
-    intN = Fraction
-    symbol = partial(getattr, sentinel)
+    # The above thee are sensible choices, although Decimal is not in
+    # builtins. The remainder are unnatural, but work.
+    intN = Fraction  # Denominator 1.
+    symbol = partial(getattr, sentinel)  # Meant for tests only.
     nil = bool = {'false':b'', 'true':sentinel.true}.get
-    tag = methodcaller
+    tag = methodcaller  # Defers a call, but won't actually be a method.
 
 class HashBox:
     """Wrapper to make keys behave like EDN.
@@ -381,14 +384,14 @@ class BoxedEDN(StandardEDN):
     unpickling the results in another environment may require a
     Garden of EDN install there.
 
-    Bools use NaturalEDN's method. They will get wrapped anyway,
+    Bools use BuiltinEDN's method. They will get wrapped anyway,
     so there's no reason not to use the more natural types. Rendered
     types are otherwise as StandardEDN.
     """
-    bool = NaturalEDN.bool
+    bool = BuiltinEDN.bool
     key = HashBox
 
-class HisspEDN(NaturalEDN):
+class HisspEDN(BuiltinEDN):
     """Parses to Hissp. Allows Python programs to be written in EDN.
 
     The compiled output doesn't necessitate any installation to run.
@@ -454,11 +457,17 @@ class PyrMixin:
     list = staticmethod(plist)
     vector = pvector  # nondescriptor
 
-class PyrNaturalEDN(PyrMixin, NaturalEDN):
-    pass
+class PyrBuiltinEDN(PyrMixin, BuiltinEDN):
+    """Adds pyrsistent collections to BuiltinEDN.
+
+    Unpickling requires Pyrsistent, but not Garden of EDN.
+    """
 
 class PyrStandardEDN(PyrMixin, StandardEDN):
-    pass
+    """Adds pyrsistent collections to StandardEDN
+
+    Unpickling requires Pyrsistent, but not Garden of EDN.
+    """
 
 class PyrHisspEDN(PyrMixin, HisspEDN):
     """Adds pyrsistent collections to HisspEDN, except lists.
