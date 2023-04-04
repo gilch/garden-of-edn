@@ -266,6 +266,13 @@ class BuiltinEDN(AbstractEDN):
     [([1], 1), ([2], 2)]
     >>> next(BuiltinEDN(R'#{#{}}').read())
     [set()]
+
+    If the resulting list contains any non-pairs, it must have been
+    read from a set. If the resulting list contains only pairs,
+    it was likely read from a map, but could (in principle) have been
+    read from a set of pairs, making it impossible to be sure. In the
+    unlikely case this matters for your use, override cmap or cset to
+    make them distinguishable.
     """
     set = set
     map = dict
@@ -278,7 +285,7 @@ class BuiltinEDN(AbstractEDN):
     nil = bool = {'false':False, 'true':True}.get
 
 class StandardEDN(BuiltinEDN):
-    """Handles more cases, using only standard-library types.
+    R"""Handles more cases, using only standard-library types.
 
     But at the cost of being a little harder to use than BuiltinEDN.
     More imports are used and some types are used in unnatural ways.
@@ -324,6 +331,10 @@ class StandardEDN(BuiltinEDN):
     >>> _ is next(StandardEDN(':foo').read())
     True
 
+    Chars get encoded to bytes.
+    >>> next(StandardEDN(R'[\* "*" :* *]').read())
+    (b'*', '*', sentinel.:*, sentinel.*)
+
     Python has a perfectly good bool type, but because EDN equality
     is different, it would cause collections to fail to round-trip
     in some cases.
@@ -336,14 +347,15 @@ class StandardEDN(BuiltinEDN):
     EDN doesn't consider these keys equal, so data was lost.
     StandardEDN can handle this without loss, by using the same
     sentinel type for true as well. sentinel.false could also be used
-    without abiguity, but b'' has the advantage of being falsy, while
-    still never comparing equal to any standard EDN type.
+    without abiguity, but b'' has the advantage of being falsy,
+    while still never comparing equal to any other standard EDN type.
+    (Chars do render as bytes, but they are never length 0.)
     >>> next(StandardEDN('{0 0, 1 1, false 2, true 3}').read())
     {0: 0, 1: 1, b'': 2, sentinel.true: 3}
 
     The precision types are now distinguishable. A denominator-1
     fraction is a bit less natural. Python 2 used to have a separate
-    int and long type, but now its int is arbitrary-precision and it
+    int and long type, but now its int is arbitrary-precision, and it
     lacks a fixed-precision type. Because int is expected to be more
     common than intN, it gets the builtin, and intN gets something
     else.
@@ -351,18 +363,19 @@ class StandardEDN(BuiltinEDN):
     (0, Fraction(0, 1), Decimal('0'), 0.0)
 
     However, any numeric type of the same value still compares equal.
-    Mixing numeric types in a hash table is inadvisable, per the EDN
+    Mixing numeric types in a hashtable is inadvisable, per the EDN
     spec, and ClojureScript has similar problems, so this is rarely
     an issue in practice.
     >>> next(StandardEDN('#{0 0N 0M 0.0}').read())
     frozenset({0})
     """
     set = frozenset
-    cmap = cset = list
     vector = tuple
     floatM = Decimal
-    # The above thee are sensible choices, although Decimal is not in
-    # builtins. The remainder are unnatural, but work.
+    # The above three are sensible choices, although Decimal is not in
+    # builtins. The remainder are less natural, but work.
+    cmap = cset = list
+    char = staticmethod(str.encode)
     intN = Fraction  # Denominator 1.
     keyword = symbol = partial(getattr, sentinel)  # Meant for tests only.
     nil = bool = {'false':b'', 'true':sentinel.true}.get
@@ -398,14 +411,14 @@ class Box:
     >>> hash(Box({})) == hash(dict)
     True
 
-    If a hash table contains many Box keys, it may suffer
+    If a hashtable contains many Box keys, it may suffer
     degraded performance as keys cannot be dispersed over as many
     buckets when they produce equal hashes. This is likely no worse
     than the alternative of scanning through a list for a key,
     as they are at least dispersed by type, and any hashable boxed
     keys are also dispersed by value.
 
-    Also, mutating anything used as a hash table key is a bad idea,
+    Also, mutating anything used as a hashtable key is a bad idea,
     liable to cause surprises. Box enables this and can do nothing
     to prevent it. Use with care.
     """
@@ -423,16 +436,16 @@ class Box:
         return f'{type(self).__name__}({self.k!r})'
 
 class BoxedEDN(StandardEDN):
-    """Uses Box for keys.
+    R"""Uses Box for keys.
 
     Unlike the simpler parsers, there are no cases expected to lose
     data. This a round-tripping parser.
 
-    >>> next(BoxedEDN(R'{{1 1} 2, {2 2} 4}').read())
-    {Box({Box(1): 1}): 2, Box({Box(2): 2}): 4}
-    >>> next(BoxedEDN(R'#{{1 1} 2 {2 2} 4}').read())
-    frozenset({Box(2), Box({Box(1): 1}), Box(4), Box({Box(2): 2})})
-    >>> len(next(BoxedEDN('#{0 0N 0M 0.0 false}').read())) == 5
+    >>> next(BoxedEDN(R'{{1 1} 2, [2 2] 4}').read())
+    {Box({Box(1): 1}): 2, Box([2, 2]): 4}
+    >>> next(BoxedEDN(R'#{{1 1} 2 [2 2] 4}').read())
+    frozenset({Box([2, 2]), Box(2), Box({Box(1): 1}), Box(4)})
+    >>> len(next(BoxedEDN(R'#{0 0N 0M 0.0 false "0" \0}').read())) == 7
     True
 
     Due to the use of a non-standard type, unlike StandardEDN,
@@ -442,16 +455,19 @@ class BoxedEDN(StandardEDN):
     Bools use BuiltinEDN's method. They will get wrapped anyway,
     so there's no reason not to use the more natural types. Rendered
     types are otherwise as StandardEDN.
-    >>> next(BoxedEDN(R'[0 0N 0M 0.0 false False]').read())
+    >>> next(BoxedEDN(R'(0 0N 0M 0.0 false False)').read())
     (0, Fraction(0, 1), Decimal('0'), 0.0, False, sentinel.False)
     """
+    vector = list
     bool = BuiltinEDN.bool
     key = Box
 
 class LilithHissp(BuiltinEDN):
-    """Parses to Hissp. Allows Python programs to be written in EDN.
+    R"""Parses to Hissp. Allows Python programs to be written in EDN.
 
-    The compiled output doesn't necessitate any installation to run.
+    The compiled output is standalone; LilithHissp compiles to
+    standard-library Python; It doesn't necessitate any installation
+    to run, beyond what is explicitly added to the program.
     """
     def compile(self):
         """Yields the Python compilation of each Hissp form.
@@ -466,7 +482,8 @@ class LilithHissp(BuiltinEDN):
     def exec(self) -> str:
         """Compiles and executes each Hissp form.
 
-        Returns the compiled Python.
+        Returns the compiled Python. Because forms are executed in
+        turn, a form can use a macro defined previously in the same EDN.
         """
         try:
             self.compiler.evaluate = True
@@ -481,12 +498,100 @@ class LilithHissp(BuiltinEDN):
     keyword = str
     floatM = Decimal
     def symbol(self, v):
-        if v != '/':
-            v = v.replace('/', '..')
+        """
+        Use a ``.`` for Hissp's ':', since that's not allowed in EDN.
+        >>> print(LilithHissp('''
+        ... (print 1 2 3 . sep .)
+        ... ''').exec())
+        1:2:3
+        print(
+          (1),
+          (2),
+          (3),
+          sep=':')
+
+        You can use ``/`` instead of ``..`` for fully-qualified imports.
+        >>> print(LilithHissp('''
+        ... (print math/tau math..pi)
+        ... ''').exec())
+        6.283185307179586 3.141592653589793
+        print(
+          __import__('math').tau,
+          __import__('math').pi)
+
+        Symbols use Lissp's munging rules.
+        >>> next(LilithHissp('*%&?').read())
+        'QzSTAR_QzPCENT_QzET_QzQUERY_'
+        """
         if v == '.':
             return ':'
+        if v != '/':
+            v = v.replace('/', '..')
         return munge(v)
     def tag(self, tag, element):
+        R"""
+
+        Hissp's bundled prelude adds some basic utilities.
+        >>> ns = {}  # You can re-use the same namespace.
+        >>> LilithHissp('''
+        ... (hissp/_macro_.prelude)
+        ... ''', ns=ns).exec() and None
+
+        #hissp/. is built in to LilithHissp & works like Lissp's inject.
+        >>> [*LilithHissp(R'''
+        ... "foo" ; Reads as a str containing a Python string literal.
+        ... #hissp/. "foo" ; As str containing a Python identifier.
+        ... foo ; Same.
+        ... "40 + 2" ; Reads as str containing a Python string literal.
+        ... #hissp/. "40 + 2" ; As str containing an add expression.
+        ... #hissp/. (add 40 2) ; Read-time evaluation (to 42).
+        ... #builtins/ord \* ; Use qualified unary func at read time.
+        ... ''', ns=ns).read()]
+        ["('foo')", 'foo', 'foo', "('40 + 2')", '40 + 2', 42, 42]
+
+        Tags (like the #X for a unary function literal) fall back to
+        the same read-time macros used by Lissp. For Lissp
+        compatibility, the #X is interpreted as X# (i.e. XQzHASH_),
+        found in the _macro_ object added by the prelude.
+        >>> print(LilithHissp('''
+        ... (print (#X #hissp/."X[::2]" "abc"))
+        ... ''', ns=ns).exec())
+        ac
+        print(
+          (lambda X:X[::2])(
+            ('abc')))
+
+        #hissp/! is built in to LilithHissp. It's used for read-time
+        macros that take more than one argument. While Clojure has
+        those, EDN tags are restricted to one argument. However,
+        the argument can be a collection.
+
+        #hissp/$ is also built in. It munges a string, making it act
+        like a symbol. While EDN symbols are munged like Lissp,
+        EDN does not allow certain characters in symbols that Lissp
+        does. (Like @, because that's a built-in read-time macro in
+        Clojure.)
+        >>> next(LilithHissp(R'''
+        ... #hissp/$"@"
+        ... ''', ns=ns).read())
+        'QzAT_'
+
+        For example, Lissp's decorator read-time macro. Verbose,
+        but works.
+        >>> LilithHissp(R'''
+        ... #hissp/!
+        ... [#hissp/$"@" str.title
+        ...  (define spam (quote spam))]
+        ... (print spam)
+        ... ''', ns=ns).exec() and None
+        Spam
+
+        For Lissp compatibility, primary argument comes last.
+        >>> next(LilithHissp(R'''
+        ... #hissp/!(builtins/print 1 2 . sep . 0)
+        ... ''', ns=ns).read())
+        0:1:2
+        """
         extras = ()
         if tag == 'hissp/.':  # inject
             return eval(hissp.readerless(element, self.compiler.ns), self.compiler.ns)
@@ -494,11 +599,11 @@ class LilithHissp(BuiltinEDN):
             tag, *extras, element = element
         if tag == 'hissp/$':  # munge
             return munge(ast.literal_eval(element))
-        *module, function = tag.split("/")
+        *module, function = tag.replace('/', '..').split('..')
         if not module or re.match(rf"{MACROS}\.[^.]+$", function):
-            function += munge("#")
+            function += munge('#')
         module = import_module(*module) if module else self.compiler.ns[MACROS]
-        f = reduce(getattr, function.split("."), module)
+        f = reduce(getattr, function.split('.'), module)
         args, kwargs = hissp.reader._parse_extras(extras)
         with self.compiler.macro_context():
             return f(element, *args, **kwargs)
@@ -553,9 +658,21 @@ class PyrBoxedEDN(PyrMixin, BoxedEDN):
     """
 
 class PandoraHissp(PyrMixin, LilithHissp):
-    """Adds Pyrsistent collections to LilithHissp, except lists.
+    R"""Interprets EDN colls as Pyrsistent collection except lists.
 
-    The compiled output is expected to require Pyrsistent to run.
+    Unlike LilithHissp, the compiled output is expected to require
+    Pyrsistent to run; it is not standalone.
+
+    >>> print(PandoraHissp('''
+    ... ((lambda [x]
+    ...    (print x))
+    ...  (quote hi))
+    ... ''').exec())
+    hi
+    (lambda x:
+      print(
+        x))(
+      'hi')
     """
     list = tuple
 
