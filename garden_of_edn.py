@@ -325,15 +325,15 @@ class StandardEDN(BuiltinEDN):
     interning semantics desired for keywords: the same keyword always
     produces the same object. Using the same type for both is allowed
     by the spec, because they remain distinguishable by the leading
-    colon.
-    >>> next(StandardEDN(':foo').read())
-    sentinel.:foo
-    >>> _ is next(StandardEDN(':foo').read())
+    character.
+    >>> next(StandardEDN('[:foo foo]').read())
+    (sentinel.:foo, sentinel.'foo)
+    >>> _[0] is next(StandardEDN(':foo').read())
     True
 
     Chars get encoded to bytes.
     >>> next(StandardEDN(R'[\* "*" :* *]').read())
-    (b'*', '*', sentinel.:*, sentinel.*)
+    (b'*', '*', sentinel.:*, sentinel.'*)
 
     Python has a perfectly good bool type, but because EDN equality
     is different, it would cause collections to fail to round-trip
@@ -377,7 +377,8 @@ class StandardEDN(BuiltinEDN):
     cmap = cset = list
     char = staticmethod(str.encode)
     intN = Fraction  # Denominator 1.
-    keyword = symbol = partial(getattr, sentinel)  # Meant for tests only.
+    keyword = partial(getattr, sentinel)
+    def symbol(self, v: str): return getattr(sentinel, "'"+v)
     nil = bool = {'false':b'', 'true':sentinel.true}.get
     tag = methodcaller  # Defers a call, but won't actually be a method.
 
@@ -456,7 +457,7 @@ class BoxedEDN(StandardEDN):
     so there's no reason not to use the more natural types. Rendered
     types are otherwise as StandardEDN.
     >>> next(BoxedEDN(R'(0 0N 0M 0.0 false False)').read())
-    (0, Fraction(0, 1), Decimal('0'), 0.0, False, sentinel.False)
+    (0, Fraction(0, 1), Decimal('0'), 0.0, False, sentinel.'False)
     """
     vector = list
     bool = BuiltinEDN.bool
