@@ -198,7 +198,7 @@ class AbstractEDN(metaclass=ABCMeta):
     @abstractmethod
     def set(self, elements: tuple): ...
     @abstractmethod
-    def map(self, elements: tuple): ...
+    def map(self, items: tuple): ...
     @abstractmethod
     def symbol(self, v: str): ...
     @abstractmethod
@@ -658,24 +658,65 @@ class PyrBoxedEDN(PyrMixin, BoxedEDN):
     Pyrsistent and Garden of EDN.
     """
 
-class PandoraHissp(PyrMixin, LilithHissp):
+class PandoraHissp(LilithHissp):
     R"""Interprets EDN colls as Pyrsistent collection except lists.
 
-    Unlike LilithHissp, the compiled output is expected to require
-    Pyrsistent to run; it is not standalone.
+    Unlike LilithHissp, the compiled output is expected to typically
+    require Pyrsistent to run; it is not standalone.
 
+    Unlike Clojure (and EDN, typically), vectors, sets and maps read as
+    construction expressions, not literally as the collections
+    themselves. This approach is more compatible with Hissp.
+    >>> for x in PandoraHissp('''
+    ... [1 2] #{3} {4 5}
+    ... ''').read():
+    ...     print(x)
+    ('pyrsistent..v', 1, 2)
+    ('pyrsistent..s', 3)
+    ('pyrsistent..pmap', ('hissp.._macro_.QzPCENT_', 4, 5))
+
+    If you need the collections themselves at read time, use an inject.
+    >>> for x in PandoraHissp('''
+    ... #hissp/. [1 2] #hissp/. #{3} #hissp/. {4 5}
+    ... ''').read():
+    ...     print(x)
+    pvector([1, 2])
+    pset([3])
+    pmap({4: 5})
+
+    Beware that if Hissp is given a type of object without a literal
+    syntax in Python, rather than the code to construct it, it must fall
+    back to pickle in order to compile it to Python.
     >>> print(PandoraHissp('''
-    ... ((lambda [x]
-    ...    (print x))
-    ...  (quote hi))
+    ... #hissp/. [1 2 3]
     ... ''').exec())
-    hi
-    (lambda x:
-      print(
-        x))(
-      'hi')
+    __import__('pickle').loads(  # pvector([1, 2, 3])
+        b'cpvectorc\n'
+        b'pvector\n'
+        b'((lI1\n'
+        b'aI2\n'
+        b'aI3\n'
+        b'atR.'
+    )
+
+    This can fail if the coll contains an unpicklable element.
+    >>> print(PandoraHissp('''
+    ... #hissp/. {1 (lambda .)}
+    ... ''').exec()) # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    hissp.compiler.CompileError:...
+    (>   >  > >>pmap({1: <function <lambda> at 0x...>})<< <  <   <)
+    # Compiler.pickle() PicklingError:
+    #  Can't pickle <function <lambda> at 0x...
     """
     list = tuple
+    def vector(self, elements): return 'pyrsistent..v', *elements
+    def set(self, elements): return 'pyrsistent..s', *elements
+    def map(self, items):
+        return ('pyrsistent..pmap',
+                ('hissp.._macro_.QzPCENT_',
+                 *[x for kv in items for x in kv]))
 
 if __name__ == '__main__':
     doctest.testmod()
