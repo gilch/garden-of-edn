@@ -491,7 +491,7 @@ class LilithHissp(BuiltinEDN):
             return self.compiler.compile(self.read())
         finally:
             self.compiler.evaluate = False
-    def __init__(self, edn, tags=(), *, qualname='__main__', ns=None, **kwargs):
+    def __init__(self, edn, tags=(), *, qualname='<EDN>', ns=None, **kwargs):
         self.compiler = Compiler(qualname=qualname, ns=ns, evaluate=False)
         super().__init__(edn, tags, **kwargs)
     def string(self, v):
