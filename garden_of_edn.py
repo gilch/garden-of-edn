@@ -284,6 +284,47 @@ class BuiltinEDN(AbstractEDN):
     keyword = symbol = str
     nil = bool = {'false':False, 'true':True}.get
 
+class LiteralEDN(BuiltinEDN):
+    R"""
+    Round-tripping EDN parser using only types with literal notation.
+
+    This form can be serialized with repr() and read back with
+    ast.literal_eval(). It also easily serializes to JSON, but that
+    format does not reliably distinguish ints from floats, so it may not
+    round-trip when floats are integral. If this is a problem for your
+    use case, override one of the methods.
+
+    All collections read to tuples, with a prefix naming which.
+    >>> [*LiteralEDN('#{1} [2 3] (4) {5 6, 7 8}').read()]
+    [('set', 1), ('vector', 2, 3), ('list', 4), ('map', (5, 6), (7, 8))]
+
+    Common primitives use the natural built-in types.
+    >>> [*LiteralEDN('true false nil 0 0.0').read()]
+    [True, False, None, 0, 0.0]
+
+    The remaining atoms types render to strings with a prefix character.
+    >>> [*LiteralEDN(R'"foo" foo :foo 0N 0.0M \x').read()]
+    ['"foo', "'foo", ':foo', 'N0', 'M0.0', '\\x']
+
+    Tags pass through.
+    >>> [*LiteralEDN(R'#foo too #inst "1111-11-11"').read()]
+    [('#foo', "'too"), ('#inst', '"1111-11-11')]
+    """
+    def __init__(self, edn, **kwargs):
+        tags = dict(inst=partial(self.tag, 'inst'),
+                    uuid=partial(self.tag, 'uuid'))
+        super().__init__(edn, tags=tags, **kwargs)
+    def set(self, elements: Iterator): return 'set', *elements
+    def vector(self, elements: Iterator): return 'vector', *elements
+    def list(self, elements: Iterator): return 'list', *elements
+    def map(self, items: tuple): return 'map', *items
+    def string(self, v: str): return '"' + v
+    def symbol(self, v: str): return "'" + v
+    def floatM(self, v: str): return "M" + v
+    def intN(self, v: str): return "N" + v
+    def char(self, v: str): return "\\" + v
+    def tag(self, tag, element): return '#' + tag, element
+
 class StandardEDN(BuiltinEDN):
     R"""Handles more cases, using only standard-library types.
 
