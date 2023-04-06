@@ -266,13 +266,6 @@ class BuiltinEDN(AbstractEDN):
     [([1], 1), ([2], 2)]
     >>> next(BuiltinEDN(R'#{#{}}').read())
     [set()]
-
-    If the resulting list contains any non-pairs, it must have been
-    read from a set. If the resulting list contains only pairs,
-    it was likely read from a map, but could (in principle) have been
-    read from a set of pairs, making it impossible to be sure. In the
-    unlikely case this matters for your use, override cmap or cset to
-    make them distinguishable.
     """
     set = set
     map = dict
@@ -361,6 +354,13 @@ class StandardEDN(BuiltinEDN):
     >>> next(StandardEDN(R'#{{1 1} 2 {2 2} 4}').read())
     [{1: 1}, 2, {2: 2}, 4]
 
+    If the resulting list contains any non-pairs, it must have been
+    read from a set. If the resulting list contains only pairs,
+    it was likely read from a map, but could (in principle) have been
+    read from a set of pairs, making it impossible to be sure. In the
+    unlikely case this matters for your use, override cmap or cset to
+    make them distinguishable.
+
     Symbol and keyword types map to `unittest.mock.sentinel`,
     a standard-library type meant for unit testing, but with the
     interning semantics desired for keywords: the same keyword always
@@ -436,7 +436,7 @@ class Box:
     objects are of exactly the same type and are equal.
     >>> Box(1) == Box(1)
     True
-    >>> 1 == 1.0 # int and float can compare equal
+    >>> 1 == 1.0  # int and float can compare equal
     True
     >>> Box(1) == Box(1.0)  # But not when boxed.
     False
@@ -727,29 +727,41 @@ class PandoraHissp(LilithHissp):
 
     Beware that if Hissp is given a type of object without a literal
     syntax in Python, rather than the code to construct it, it must fall
-    back to pickle in order to compile it to Python.
+    back to pickle in order to compile it all the way down to Python.
     >>> print(PandoraHissp('''
-    ... #hissp/. [1 2 3]
+    ... #hissp/. [42]
     ... ''').exec())
-    __import__('pickle').loads(  # pvector([1, 2, 3])
+    __import__('pickle').loads(  # pvector([42])
         b'cpvectorc\n'
         b'pvector\n'
-        b'((lI1\n'
-        b'aI2\n'
-        b'aI3\n'
+        b'((lI42\n'
         b'atR.'
     )
 
-    This can fail if the coll contains an unpicklable element.
-    >>> print(PandoraHissp('''
+    This can fail if the collection contains an unpicklable element.
+    >>> PandoraHissp('''
     ... #hissp/. {1 (lambda .)}
-    ... ''').exec()) # doctest: +ELLIPSIS
+    ... ''').exec() # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
     hissp.compiler.CompileError:...
     (>   >  > >>pmap({1: <function <lambda> at 0x...>})<< <  <   <)
     # Compiler.pickle() PicklingError:
     #  Can't pickle <function <lambda> at 0x...
+
+    But it's fine to pass these to another tag (or macro), as long as it
+    doesn't compile all the way down. In this case, it reads to a None.
+    >>> PandoraHissp('''
+    ... #builtins/print #hissp/. {1 (lambda .)}
+    ... ''').exec() # doctest: +ELLIPSIS
+    pmap({1: <function <lambda> at 0x...>})
+    'None'
+
+    And, of course, the default construction expression works fine.
+    >>> PandoraHissp('''
+    ... (print {1 (lambda .)})
+    ... ''').exec() and None # doctest: +ELLIPSIS
+    pmap({1: <function <lambda> at 0x...>})
     """
     list = tuple
     def vector(self, elements): return 'pyrsistent..v', *elements
@@ -762,7 +774,6 @@ class PandoraHissp(LilithHissp):
 if __name__ == '__main__':
     doctest.testmod()
 
-# TODO: moar doctests
 # FIX: ns coalesce bug in readerless
 # TODO: make _parse_extras public
 # TODO: import munge in hissp.
