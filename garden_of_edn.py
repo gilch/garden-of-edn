@@ -55,7 +55,7 @@ TOKENS = re.compile(
         )*  # Zero or more times.
       "  # Close quote.
      )
-    |(?P<_atom>[^]}),\s]+|\\.)
+    |(?P<_atom>[^]}),;\s]+|\\.)
     |(?P<_error>.)
     """
 )
@@ -781,3 +781,5 @@ if __name__ == '__main__':
 # TODO: HisspEDN repl?
 # TODO: basic pretty printer
 # TODO: serializers?
+# TODO: EDN loader and importer
+# TODO: allow an EDN file to be main.
