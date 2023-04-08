@@ -14,6 +14,7 @@ objects; they don't serialize Python objects into EDN format.
 import ast
 import builtins
 import doctest
+import pathlib
 import re
 from abc import ABCMeta, abstractmethod
 from datetime import datetime
@@ -21,6 +22,8 @@ from decimal import Decimal
 from fractions import Fraction
 from functools import partial, reduce
 from importlib import import_module
+from importlib.abc import FileLoader
+from importlib.util import spec_from_loader
 from itertools import takewhile
 from operator import methodcaller
 from typing import Iterator
@@ -771,25 +774,50 @@ class PandoraHissp(LilithHissp):
                 ('hissp.._macro_.QzPCENT_',
                  *[x for kv in items for x in kv]))
 
-def __getattr__(name):
-    '''Allows the python command to run an EDN file directly as main.
+class EDNImporter:
+    def find_spec(self, fullname, path=None, target=None):
+        filename = fullname.split('.')[-1] + '.edn'
+        path = pathlib.Path(*path or '', filename)
+        if path.is_file():
+            return spec_from_loader(fullname, EDNLoader(fullname, str(path)))
 
-    It must be a valid EDN file that can also parse as Python which
-    imports _this_file_as_main_ from garden_of_edn, and must also
-    contain a valid PandoraHissp program. For example::
+class EDNLoader(FileLoader):
+    def exec_module(self, module):
+        module.__file__ = self.path
+        path = pathlib.Path(self.path)
+        self.source = path.read_text()
+        PandoraHissp(self.source, qualname=self.name, ns=vars(module)).exec()
+        return module
+    def get_source(self, fullname):
+        return self.source
+
+def __getattr__(name):
+    '''Handles import actions that enable the use of PandoraHissp.
+
+    Importing hooks allows the import of PandoraHissp EDN files.
+
+    _this_file_as_main_ allows the python command to run an EDN file
+    directly as main (implies hooks). It must be a valid EDN file
+    that can also parse as Python which imports _this_file_as_main_
+    from garden_of_edn, and must also contain a valid PandoraHissp
+    program. For example::
 
         0 ; from garden_of_edn import _this_file_as_main_; """
         (print "Hello, World!")
         ;; """
 
     '''
+    if name not in {'hooks', '_this_file_as_main_'}:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import sys
+    if EDNImporter not in map(type, sys.meta_path):
+        sys.meta_path.append(EDNImporter())
     if name == '_this_file_as_main_':
         import inspect, sys
         __main__ = sys.modules["__main__"]
         source = inspect.getsource(__main__)
         PandoraHissp(source, qualname='__main__', ns=vars(__main__)).exec()
         raise SystemExit
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 if __name__ == '__main__':
     doctest.testmod()
@@ -802,4 +830,3 @@ if __name__ == '__main__':
 # TODO: HisspEDN repl?
 # TODO: basic pretty printer
 # TODO: serializers?
-# TODO: EDN loader and importer
