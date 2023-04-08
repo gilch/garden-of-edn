@@ -771,6 +771,26 @@ class PandoraHissp(LilithHissp):
                 ('hissp.._macro_.QzPCENT_',
                  *[x for kv in items for x in kv]))
 
+def __getattr__(name):
+    '''Allows the python command to run an EDN file directly as main.
+
+    It must be a valid EDN file that can also parse as Python which
+    imports _this_file_as_main_ from garden_of_edn, and must also
+    contain a valid PandoraHissp program. For example::
+
+        0 ; from garden_of_edn import _this_file_as_main_; """
+        (print "Hello, World!")
+        ;; """
+
+    '''
+    if name == '_this_file_as_main_':
+        import inspect, sys
+        __main__ = sys.modules["__main__"]
+        source = inspect.getsource(__main__)
+        PandoraHissp(source, qualname='__main__', ns=vars(__main__)).exec()
+        raise SystemExit
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 if __name__ == '__main__':
     doctest.testmod()
 
@@ -778,8 +798,8 @@ if __name__ == '__main__':
 # TODO: make _parse_extras public
 # TODO: import munge in hissp.
 # TODO: import Compiler in hissp.
+# TODO: interpret ... as Ellipsis in readerless
 # TODO: HisspEDN repl?
 # TODO: basic pretty printer
 # TODO: serializers?
 # TODO: EDN loader and importer
-# TODO: allow an EDN file to be main.
