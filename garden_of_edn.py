@@ -785,11 +785,12 @@ class EDNLoader(FileLoader):
     def exec_module(self, module):
         module.__file__ = self.path
         path = pathlib.Path(self.path)
-        self.source = path.read_text()
-        PandoraHissp(self.source, qualname=self.name, ns=vars(module)).exec()
+        self.edn = path.read_text()
+        self.python = PandoraHissp(
+            self.edn, qualname=self.name, ns=vars(module)).exec()
         return module
     def get_source(self, fullname):
-        return self.source
+        return self.edn
 
 def __getattr__(name):
     '''Handles import actions that enable the use of PandoraHissp.
@@ -827,6 +828,7 @@ if __name__ == '__main__':
 # TODO: import munge in hissp.
 # TODO: import Compiler in hissp.
 # TODO: interpret ... as Ellipsis in readerless
+# TODO: add form number of qualname to compiled hissp filename
 # TODO: HisspEDN repl?
 # TODO: basic pretty printer
 # TODO: serializers?
