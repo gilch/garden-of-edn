@@ -31,8 +31,7 @@ from unittest.mock import sentinel
 from uuid import UUID
 
 import hissp
-from hissp.compiler import MACROS, Compiler
-from hissp.munger import munge
+from hissp.compiler import MACROS
 from pyrsistent import plist, pmap, pset, pvector
 
 TOKENS = re.compile(
@@ -536,7 +535,7 @@ class LilithHissp(BuiltinEDN):
         finally:
             self.compiler.evaluate = False
     def __init__(self, edn, tags=(), *, qualname='<EDN>', ns=None, **kwargs):
-        self.compiler = Compiler(qualname=qualname, ns=ns, evaluate=False)
+        self.compiler = hissp.Compiler(qualname=qualname, ns=ns, evaluate=False)
         super().__init__(edn, tags, **kwargs)
     def string(self, v):
         return f'({repr(v)})'
@@ -572,7 +571,7 @@ class LilithHissp(BuiltinEDN):
             return ':'
         if v != '/':
             v = v.replace('/', '..')
-        return munge(v)
+        return hissp.munge(v)
     def tag(self, tag, element):
         R"""
 
@@ -643,13 +642,13 @@ class LilithHissp(BuiltinEDN):
         if tag == 'hissp/!':  # extra
             tag, *extras, element = element
         if tag == 'hissp/$':  # munge
-            return munge(ast.literal_eval(element))
+            return hissp.munge(ast.literal_eval(element))
         *module, function = tag.replace('/', '..').split('..')
         if not module or re.match(rf"{MACROS}\.[^.]+$", function):
-            function += munge('#')
+            function += hissp.munge('#')
         module = import_module(*module) if module else self.compiler.ns[MACROS]
         f = reduce(getattr, function.split('.'), module)
-        args, kwargs = hissp.reader._parse_extras(extras)
+        args, kwargs = hissp.reader.parse_extras(extras)
         with self.compiler.macro_context():
             return f(element, *args, **kwargs)
 
@@ -823,12 +822,6 @@ def __getattr__(name):
 if __name__ == '__main__':
     doctest.testmod()
 
-# FIX: ns coalesce bug in readerless
-# TODO: make _parse_extras public
-# TODO: import munge in hissp.
-# TODO: import Compiler in hissp.
-# TODO: interpret ... as Ellipsis in readerless
-# TODO: add form number of qualname to compiled hissp filename
 # TODO: HisspEDN repl?
 # TODO: basic pretty printer
 # TODO: serializers?
