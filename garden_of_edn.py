@@ -89,18 +89,20 @@ SINGLES = re.compile(r"""(?P<nil>nil)|(?P<bool>true|false)|(?P<symbol>.+)""")
 def _kv(m):
     return m.lastgroup, m.group()
 
-def tokenize(edn):
+def tokenize(edn: str, filename=None):
     for m in TOKENS.finditer(edn):
-        k, v = _kv(m)
-        if k=='_atom':
-            k, v = _kv(ATOMS.fullmatch(v))
-        if k=='_symbol':
-            k, v = _kv(SINGLES.fullmatch(v)) or ('symbol', v)
-        if k in {'_comment','_whitespace'}:
-            continue
-        if k=='_error':
-            raise ValueError(m.pos)
-        yield k, v
+        try:
+            k, v = _kv(m)
+            if k=='_atom': k, v = _kv(ATOMS.fullmatch(v))
+            if k=='_symbol': k, v = _kv(SINGLES.fullmatch(v)) or ('symbol', v)
+            if k in {'_comment','_whitespace'}: continue
+            if k=='_error': raise ValueError
+            yield k, v
+        except Exception as e:
+            lineno = edn.count('\n', 0, m.start())
+            offset = m.start() - edn.rfind('\n', 0, m.start())
+            details = filename, lineno+1, offset, edn.split('\n')[lineno]
+            raise SyntaxError("Couldn't tokenize EDN", details) from e
 
 class AbstractEDN(metaclass=ABCMeta):
     """AbstractEDN is a highly customizable EDN parser base class.
@@ -142,8 +144,8 @@ class AbstractEDN(metaclass=ABCMeta):
     """
     def read(self):
         return self._parse()
-    def __init__(self, edn, tags=(), **kwargs):
-        self.tokens = tokenize(edn)
+    def __init__(self, edn: str, tags=(), filename=None, **kwargs):
+        self.tokens = tokenize(edn, filename)
         self.tags = dict(uuid=UUID, inst=datetime.fromisoformat)
         self.tags.update(tags)
     def _tokens_until(self, k):
@@ -786,7 +788,8 @@ class EDNLoader(FileLoader):
         path = pathlib.Path(self.path)
         self.edn = path.read_text()
         self.python = PandoraHissp(
-            self.edn, qualname=self.name, ns=vars(module)).exec()
+            self.edn, filename=module.__file__, qualname=self.name, ns=vars(module)
+        ).exec()
         return module
     def get_source(self, fullname):
         return self.edn
@@ -816,7 +819,9 @@ def __getattr__(name):
         import inspect, sys
         __main__ = sys.modules["__main__"]
         source = inspect.getsource(__main__)
-        PandoraHissp(source, qualname='__main__', ns=vars(__main__)).exec()
+        PandoraHissp(
+            source, filename=__main__.__file__, qualname='__main__', ns=vars(__main__)
+        ).exec()
         raise SystemExit
 
 if __name__ == '__main__':
