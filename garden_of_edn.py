@@ -819,9 +819,14 @@ def __getattr__(name):
         import inspect, sys
         __main__ = sys.modules["__main__"]
         source = inspect.getsource(__main__)
-        PandoraHissp(
-            source, filename=__main__.__file__, qualname='__main__', ns=vars(__main__)
-        ).exec()
+        try:
+            PandoraHissp(
+                source, filename=__main__.__file__, qualname='__main__', ns=vars(__main__)
+            ).exec()
+        except:
+            import traceback
+            traceback.print_exc()
+            raise
         raise SystemExit
 
 if __name__ == '__main__':
