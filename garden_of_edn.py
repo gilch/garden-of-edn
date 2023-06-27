@@ -805,9 +805,9 @@ def __getattr__(name):
     from garden_of_edn, and must also contain a valid PandoraHissp
     program. For example::
 
-        0 ; from garden_of_edn import _this_file_as_main_; """
+        0 ; from garden_of_edn import _this_file_as_main_; """ "
         (print "Hello, World!")
-        ;; """
+        ;; """#"
 
     '''
     if name not in {'hooks', '_this_file_as_main_'}:
