@@ -638,11 +638,8 @@ class LilithHissp(BuiltinEDN):
         ... ''', ns=ns).read())
         0:1:2
         """
-        extras = ()
         if tag == 'hissp/.':  # inject
             return eval(hissp.readerless(element, self.compiler.ns), self.compiler.ns)
-        if tag == 'hissp/!':  # extra
-            tag, *extras, element = element
         if tag == 'hissp/$':  # munge
             return hissp.munge(ast.literal_eval(element))
         *module, function = tag.replace('/', '..').split('..')
@@ -650,9 +647,8 @@ class LilithHissp(BuiltinEDN):
             function += hissp.munge('#')
         module = import_module(*module) if module else self.compiler.ns[MACROS]
         f = reduce(getattr, function.split('.'), module)
-        args, kwargs = hissp.reader.parse_extras(extras)
         with self.compiler.macro_context():
-            return f(element, *args, **kwargs)
+            return f(element)
 
 class PyrMixin(AbstractEDN):
     """Mixin to make an EDN parser use Pyrsistent data structures.
