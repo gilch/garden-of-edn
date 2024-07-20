@@ -508,6 +508,7 @@ class BoxedEDN(StandardEDN):
     bool = BuiltinEDN.bool
     key = Box
 
+# TODO: figure out aliases
 class LilithHissp(BuiltinEDN):
     R"""Parses to Hissp. Allows Python programs to be written in EDN.
 
@@ -607,11 +608,6 @@ class LilithHissp(BuiltinEDN):
           (lambda X:X[::2])(
             ('abc')))
 
-        #hissp/! is built in to LilithHissp. It's used for read-time
-        macros that take more than one argument. While Clojure has
-        those, EDN tags are restricted to one argument. However,
-        the argument can be a collection.
-
         #hissp/$ is also built in. It munges a string, making it act
         like a symbol. While EDN symbols are munged like Lissp,
         EDN does not allow certain characters in symbols that Lissp
@@ -621,22 +617,6 @@ class LilithHissp(BuiltinEDN):
         ... #hissp/$"@"
         ... ''', ns=ns).read())
         'QzAT_'
-
-        For example, Lissp's decorator read-time macro. Verbose,
-        but works.
-        >>> LilithHissp(R'''
-        ... #hissp/!
-        ... [#hissp/$"@" str.title
-        ...  (define spam (quote spam))]
-        ... (print spam)
-        ... ''', ns=ns).exec() and None
-        Spam
-
-        For Lissp compatibility, primary argument comes last.
-        >>> next(LilithHissp(R'''
-        ... #hissp/!(builtins/print 1 2 . sep . 0)
-        ... ''', ns=ns).read())
-        0:1:2
         """
         if tag == 'hissp/.':  # inject
             return eval(hissp.readerless(element, self.compiler.ns), self.compiler.ns)
