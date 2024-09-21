@@ -537,8 +537,8 @@ class LilithHissp(BuiltinEDN):
             return self.compiler.compile(self.read())
         finally:
             self.compiler.evaluate = False
-    def __init__(self, edn, tags=(), *, qualname='<EDN>', ns=None, **kwargs):
-        self.compiler = hissp.Compiler(qualname=qualname, ns=ns, evaluate=False)
+    def __init__(self, edn, tags=(), *, qualname='<EDN>', env=None, **kwargs):
+        self.compiler = hissp.Compiler(qualname=qualname, env=env, evaluate=False)
         super().__init__(edn, tags, **kwargs)
     def string(self, v):
         return f'({repr(v)})'
@@ -579,10 +579,10 @@ class LilithHissp(BuiltinEDN):
         R"""
 
         Hissp's bundled prelude adds some basic utilities.
-        >>> ns = {}  # You can re-use the same namespace.
+        >>> env = {}  # You can re-use the same environment.
         >>> LilithHissp('''
         ... (hissp/_macro_.prelude)
-        ... ''', ns=ns).exec() and None
+        ... ''', env=env).exec() and None
 
         #hissp/. is built in to LilithHissp & works like Lissp's inject.
         >>> [*LilithHissp(R'''
@@ -593,7 +593,7 @@ class LilithHissp(BuiltinEDN):
         ... #hissp/. "40 + 2" ; As str containing an add expression.
         ... #hissp/. (add 40 2) ; Read-time evaluation (to 42).
         ... #builtins/ord \* ; Use qualified unary func at read time.
-        ... ''', ns=ns).read()]
+        ... ''', env=env).read()]
         ["('foo')", 'foo', 'foo', "('40 + 2')", '40 + 2', 42, 42]
 
         Tags (like the #X for a unary function literal) fall back to
@@ -602,7 +602,7 @@ class LilithHissp(BuiltinEDN):
         found in the _macro_ object added by the prelude.
         >>> print(LilithHissp('''
         ... (print (#X #hissp/."X[::2]" "abc"))
-        ... ''', ns=ns).exec())
+        ... ''', env=env).exec())
         ac
         print(
           (lambda X:X[::2])(
@@ -615,19 +615,19 @@ class LilithHissp(BuiltinEDN):
         Clojure.)
         >>> next(LilithHissp(R'''
         ... #hissp/$"@"
-        ... ''', ns=ns).read())
+        ... ''', env=env).read())
         'QzAT_'
         """
         if tag == 'hissp/.':  # inject
-            return eval(hissp.readerless(element, self.compiler.ns), self.compiler.ns)
+            return eval(hissp.readerless(element, self.compiler.env), self.compiler.env)
         if tag == 'hissp/$':  # munge
             return hissp.munge(ast.literal_eval(element))
         *module, function = tag.replace('/', '..').split('..')
         if not module or re.match(rf"{MACROS}\.[^.]+$", function):
             function += hissp.munge('#')
-        module = import_module(*module) if module else self.compiler.ns[MACROS]
+        module = import_module(*module) if module else self.compiler.env[MACROS]
         f = reduce(getattr, function.split('.'), module)
-        with self.compiler.macro_context():
+        with hissp.compiler.macro_context(self.compiler.env):
             return f(element)
 
 class PyrMixin(AbstractEDN):
@@ -764,7 +764,7 @@ class EDNLoader(FileLoader):
         path = pathlib.Path(self.path)
         self.edn = path.read_text()
         self.python = PandoraHissp(
-            self.edn, filename=module.__file__, qualname=self.name, ns=vars(module)
+            self.edn, filename=module.__file__, qualname=self.name, env=vars(module)
         ).exec()
         return module
     def get_source(self, fullname):
@@ -797,7 +797,7 @@ def __getattr__(name):
         source = inspect.getsource(__main__)
         try:
             PandoraHissp(
-                source, filename=__main__.__file__, qualname='__main__', ns=vars(__main__)
+                source, filename=__main__.__file__, qualname='__main__', env=vars(__main__)
             ).exec()
         except:
             import traceback
