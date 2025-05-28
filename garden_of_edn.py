@@ -3,20 +3,19 @@
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
-"""A Garden of EDN parsers. Bringing the Python to EDN.
+"""A Garden of EDN parsers and serializers. Bringing the Python to EDN.
 
-These parsers are not validators. Behavior when given invalid EDN is
+The parsers are not validators. Behavior when given invalid EDN is
 undefined. EDN is not especially well-specified to begin with.
-
-These parsers are not serializers. They read EDN and render it as Python
-objects; they don't serialize Python objects into EDN format.
 """
 import ast
 import builtins
 import doctest
+import io
 import pathlib
 import re
 from abc import ABCMeta, abstractmethod
+from collections.abc import Iterator, Iterable, Mapping, Sequence, Set
 from datetime import datetime
 from decimal import Decimal
 from fractions import Fraction
@@ -26,13 +25,14 @@ from importlib.abc import FileLoader
 from importlib.util import spec_from_loader
 from itertools import takewhile
 from operator import methodcaller
-from typing import Iterator
+from typing import TextIO, NoReturn
 from unittest.mock import sentinel
 from uuid import UUID
 
 import hissp
 from hissp.compiler import MACROS
 from pyrsistent import plist, pmap, pset, pvector
+from pyrsistent._plist import _PListBase as PList
 
 TOKENS = re.compile(
     r"""(?x)
@@ -287,9 +287,9 @@ class LiteralEDN(BuiltinEDN):
 
     This form can be serialized with repr() and read back with
     ast.literal_eval(). It also easily serializes to JSON, but that
-    format does not reliably distinguish ints from floats, so it may not
-    round-trip when floats are integral. If this is a problem for your
-    use case, override one of the methods.
+    format does not reliably distinguish ints from floats, so JSON may
+    not round-trip when floats are integral. If this is a problem for
+    your use case, override one of the methods.
 
     All collections read to tuples, with a prefix naming which.
     >>> [*LiteralEDN('#{1} [2 3] (4) {5 6, 7 8}').read()]
@@ -532,8 +532,8 @@ class LilithHissp(BuiltinEDN):
         Returns the compiled Python. Because forms are executed in
         turn, a form can use a macro defined previously in the same EDN.
         """
+        self.compiler.evaluate = True
         try:
-            self.compiler.evaluate = True
             return self.compiler.compile(self.read())
         finally:
             self.compiler.evaluate = False
@@ -584,7 +584,7 @@ class LilithHissp(BuiltinEDN):
         ... (hissp/_macro_.prelude)
         ... ''', env=env).exec() and None
 
-        #hissp/. is built in to LilithHissp & works like Lissp's inject.
+        #hissp/. is built into LilithHissp & works like Lissp's inject.
         >>> [*LilithHissp(R'''
         ... "foo" ; Reads as a str containing a Python string literal.
         ... #hissp/. "foo" ; As str containing a Python identifier.
@@ -801,9 +801,303 @@ def __getattr__(name):
             raise
         raise SystemExit
 
+class AbstractAsEDN(metaclass=ABCMeta):
+    """
+    EDN serializer abstract base class.
+
+    Subclasses should override the abstract dispatch() method which
+    should handle what it knows call super().dispatch(obj) for the rest.
+    If you'd instead prefer to avoid the default cases, insert the
+    GiveUpMixin in the appropriate place in the method resolution order,
+    and call super().dispatch(obj) anyway, to cooperate with further
+    subclasses.
+    """
+    def __init__(self, *, comma=''):
+        self.context = []
+        self.comma = comma
+    @abstractmethod
+    def dispatch(self, obj) -> Iterable[str]:
+        """
+        Abstract implementation handles only the most obvious cases.
+        (No way to emit symbols, keywords, or characters, which
+        must be handled by subclasses, if at all.)
+
+        Given a minimal concrete subclass (dispatch() is abstract):
+        >>> class AsEDN(AbstractAsEDN):dispatch=lambda s,o:super().dispatch(o)
+
+        Tags:
+        >>> AsEDN.dumps([datetime.fromisoformat('2025-05-04T13:13:13')])
+        '#inst,"2025-05-04T13:13:13"'
+        >>> AsEDN.dumps([UUID(int=0)])
+        '#uuid,"00000000-0000-0000-0000-000000000000"'
+
+        Simple atoms:
+        >>> AsEDN.dumps([None, True, Decimal('0.070'), 4.2, 'Hi'])
+        'nil,true,0.070M,4.2,"Hi"'
+
+        Ints get an N only if outside the signed 64-bit range:
+        >>> AsEDN.dumps([42, 2**63])
+        '42,9223372036854775808N'
+
+        >>> print(AsEDN.pdumps([{frozenset({0,1}):iter('ab'), Box({'foo':(1,2)}): [1,2]}]))
+        {#{0
+           1}
+         ("a"
+          "b")
+         ,
+         {"foo"
+          [1
+           2]}
+         [1
+          2]}
+        <BLANKLINE>
+
+        """
+        match obj:
+            case Box():      return self.dispatch(obj.k)
+            # atoms
+            case datetime(): return '#inst', f'"{obj.isoformat()}"'
+            case UUID():     return '#uuid', f'"{obj}"'
+            case None:       return self.nil()
+            case bool():     return self.bool(obj)
+            case Decimal():  return self.floatM(obj)
+            case float():    return self.float(obj)
+            case str():      return self.string(obj)
+            case int():
+                # The first < is correct. Java longs include -2**63, but
+                # C doesn't guarantee it, so it needs the N.
+                return self.int(obj) if -2**63 < obj < 2**63 else self.intN(obj)
+            # collections
+            case Mapping():  return self.map(obj.items())
+            case Set():      return self.set(obj)
+            case Sequence() if not isinstance(obj, PList):
+                return self.vector(obj)
+            case Iterable() if not isinstance(obj, (bytes, str)):
+                return self.list(obj)
+            case _: raise TypeError(f"No handler for {obj!r}.")
+    @classmethod
+    def dumps(cls, objects: Iterable, *, sep=','):
+        """Quick dump to string separating tokens with sep."""
+        return sep.join(cls().node(objects))
+    @classmethod
+    def dump(cls, obj, fp: TextIO, *, sep=','):
+        """Quick dump to file separating tokens with sep.
+
+        Ugly, but computers don't care. Users with an EDN-aware editor
+        can easily auto-format it to something more readable.
+        """
+        for token in cls().node([obj]):
+            fp.write(token)
+            fp.write(sep)
+    @classmethod
+    def pdump(cls, obj, fp: TextIO):
+        """Minimal "pretty" EDN dumper.
+
+        You're better off piping `dumps()` through a quality EDN
+        formatter, but this is useful for getting a human-readable
+        output for debugging, etc. when you don't have a better one
+        handy.
+        """
+        self = cls(comma=',')
+        is_after_open = True
+        for token in iter(self.node([obj])):
+            if not is_after_open and token not in {']', '}', ')'}:
+                fp.write('\n' + len(''.join(self.context)) * ' ')
+            fp.write(token)
+            is_after_open = token in {'(', '#{', '{', '['}
+        fp.write('\n')
+    @classmethod
+    def pdumps(cls, objects: Iterable) -> str:
+        """Convenience StringIO interface for pdump()."""
+        self = cls()
+        sio = io.StringIO()
+        for obj in objects:
+            self.pdump(obj, sio)
+        sio.seek(0)
+        return sio.read()
+    def node(self, children) -> Iterable[str]:
+        for child in children:
+            element = self.dispatch(child)
+            if isinstance(element, str):
+                yield element
+            else:
+                yield from element
+    def seq(self, open, elements, close):
+        yield open
+        self.context.append(open)
+        yield from elements
+        yield close
+        self.context.pop()
+    def list(self, elements: Iterable) -> Iterable[str]:
+        return self.seq('(', self.node(elements), ')')
+    def vector(self, elements: Iterable) -> Iterable[str]:
+        return self.seq('[', self.node(elements), ']')
+    def set(self, elements: Iterable) -> Iterable[str]:
+        return self.seq('#{', self.node(elements), '}')
+    def map(self, pairs: Iterable) -> Iterable[str]:
+        return self.seq('{', self.pairs(pairs), '}')
+    def pairs(self, kvs, _sep=''):
+        for kv in kvs:
+            yield from _sep
+            yield from self.node(kv)
+            _sep = self.comma
+    def tag(self, tag: str, v) -> Iterable[str]:
+        yield f'#{tag}'
+        yield from self.node([v])
+    @staticmethod
+    def symbol(v: str) -> str: return v
+    @staticmethod
+    def string(v: str) -> str: return f'"{v.replace('"', R'\"')}"'
+    @staticmethod
+    def keyword(k: str) -> str: return f':{k}'
+    @staticmethod
+    def bool(v: bool) -> str: return 'true' if v else 'false'
+    @staticmethod
+    def nil() -> str: return 'nil'
+    @staticmethod
+    def float(v: float) -> str: return str(v)
+    @staticmethod
+    def floatM(v: Decimal) -> str: return f'{v}M'
+    @staticmethod
+    def intN(v: int) -> str: return f'{v}N'
+    @staticmethod
+    def int(v: int) -> str: return str(v)
+    @staticmethod
+    def char(
+        v: str, _chars={'\n': 'newline', '\r': 'return', ' ': 'space', '\t': 'tab'}
+    ) -> str:
+        if len(v) != 1:
+            raise ValueError(f'Expected char, got {v!r}.')
+        return R'\{}'.format(
+            _chars.get(v, v)
+        )
+
+class GiveUpMixin(AbstractAsEDN):
+    """
+    Overrides dispatch() to raise a TypeError and not call the super()
+    version. Used to suppress any further inherited handlers, for cases
+    when unexpected types should raise errors.
+    """
+    @abstractmethod
+    def dispatch(self, obj) -> NoReturn:
+        """Always raises a TypeError."""
+        raise TypeError(f"No handler for {obj!r}.")
+
+class StrAsEDN(AbstractAsEDN):
+    """
+    The simplest "complete" EDN serializer. Overrides the str handling
+    to uncritically emit their contents. This can still be used to emit
+    EDN strings, by using a str containing an EDN string.
+    """
+    def dispatch(self, obj) -> Iterable[str]:
+        R"""Overrides the str handler to return its contents:
+
+        >>> edn = [':spam', '42N', 'eggs', '"sausage"', R'\newline']
+        >>> print(StrAsEDN.dumps(edn, sep=', '))
+        :spam, 42N, eggs, "sausage", \newline
+
+        Strings are expected to contain valid EDN, but this is not
+        verified or secure. Not recommended for untrusted data.
+        Behavior is undefined on invalid input and may or may not result
+        in valid EDN output.
+
+        Calls superclass method if obj is not a str.
+        """
+        match obj:
+            case str(): return obj
+            case _: return super().dispatch(obj)
+
+class TupleAsEDNList(AbstractAsEDN):
+    """
+    Overrides tuple handling to emit EDN lists (instead of vectors).
+    Given the abstract default handlers, this is effectively the inverse
+    of BuiltinEDN, which doesn't claim to round-trip.
+    """
+    def dispatch(self, obj) -> Iterable[str]:
+        """
+        >>> TupleAsEDNList.dumps([(1,2,3), [1,2,3]])
+        '(,1,2,3,),[,1,2,3,]'
+        """
+        match obj:
+            case tuple(): return self.list(obj)
+            case _: return super().dispatch(obj)
+
+_SentinelObject = type(sentinel.X)
+class StandardAsEDN(AbstractAsEDN):
+    """
+    The inverse of the StandardEDN parser, given the abstract default
+    handlers, which would also invert the BoxedEDN, PyrStandardEDN,
+    and PyrBoxedEDN cases.
+    """
+    def dispatch(self, obj) -> Iterable[str]:
+        R"""
+        >>> s = sentinel
+        >>> edn = [b'', Fraction(2/1), s.true, b'\n', s.spam, getattr(s, "'spam")]
+        >>> print(StandardAsEDN.dumps(edn))
+        false,2N,true,\newline,:spam,spam
+        """
+        match obj:
+            case b'':                      return self.bool(False)
+            case Fraction():               return self.intN(int(obj))
+            case sentinel.true:            return self.bool(True)
+            case bytes() if len(obj) == 1: return self.char(obj.decode())
+            case _SentinelObject():
+                if obj.name.startswith("'"):
+                    return self.symbol(obj.name[1:])
+                return self.keyword(obj.name)
+            case _: return super().dispatch(obj)
+
+class LiteralAsEDN(AbstractAsEDN):
+    """
+    Round-tripping serializer using the LiteralEDN format.
+    It will also fall back to the superclass handlers.
+    """
+    def dispatch(self, obj) -> Iterable[str]:
+        R"""Serializes the EDN encoding produced by LiteralEDN.
+
+        >>> edn = [('map',(('set','\\\t',':spam'),'N12')
+        ...              ,(('list','M1',"'eggs"),('vector',1,'"sausage')))]
+        >>> print(LiteralAsEDN.pdumps(edn))
+        {#{\tab
+           :spam}
+         12N
+         ,
+         (1M
+          eggs)
+         [1
+          "sausage"]}
+        <BLANKLINE>
+        """
+        match obj:
+            # collections
+            case ['set', *xs] if type(obj) is tuple:    return self.set(xs)
+            case ['vector', *xs] if type(obj) is tuple: return self.vector(xs)
+            case ['list', *xs] if type(obj) is tuple:   return self.list(xs)
+            case ['map', *kvs] if type(obj) is tuple:   return self.map(kvs)
+            # primitives (AbstractAsEDN has these, but see LiteralOnlyAsEDN.)
+            case None:    return self.nil()
+            case bool():  return self.bool(obj)
+            case int():   return self.int(obj)
+            case float(): return self.float(obj)
+            # str codes
+            case str(v) if v and v[0] in R'''\"':NM''':
+                c, cs = v[0], v[1:]
+                match c:
+                    case '\\': return self.char(cs)
+                    case '"': return self.string(cs)
+                    case "'": return self.symbol(cs)
+                    case ":": return self.keyword(cs)
+                    case "N": return self.intN(int(cs))
+                    case "M": return self.floatM(Decimal(cs))
+                raise AssertionError('unreachable', v)  # TODO: assert_never(v) in 3.11
+            # tags pass through
+            case [str(tag), v] if type(obj) is tuple and tag.startswith('#'):
+                return self.tag(tag[1:], v)
+            case _: return super().dispatch(obj)
+
+class LiteralOnlyAsEDN(LiteralAsEDN, GiveUpMixin): pass
+
 if __name__ == '__main__':
     doctest.testmod()
 
 # TODO: HisspEDN repl?
-# TODO: basic pretty printer
-# TODO: serializers?
