@@ -422,7 +422,7 @@ class StandardEDN(BuiltinEDN):
     cmap = cset = list
     char = staticmethod(str.encode)
     intN = Fraction  # Denominator 1.
-    keyword = partial(getattr, sentinel)
+    keyword = staticmethod(partial(getattr, sentinel))
     def symbol(self, v: str): return getattr(sentinel, "'"+v)
     nil = bool = {'false':b'', 'true':sentinel.true}.get
     tag = methodcaller  # Defers a call, but won't actually be a method.
@@ -490,7 +490,7 @@ class BoxedEDN(StandardEDN):
     >>> next(BoxedEDN(R'{{1 1} 2, [2 2] 4}').read())
     {Box({Box(1): 1}): 2, Box([2, 2]): 4}
     >>> next(BoxedEDN(R'#{{1 1} 2 [2 2] 4}').read())
-    frozenset({Box([2, 2]), Box(2), Box({Box(1): 1}), Box(4)})
+    frozenset({Box([2, 2]), Box(2), Box(4), Box({Box(1): 1})})
     >>> len(next(BoxedEDN(R'#{0 0N 0M 0.0 false "0" \0}').read())) == 7
     True
 
@@ -605,7 +605,7 @@ class LilithHissp(BuiltinEDN):
         ... ''', env=env).exec())
         ac
         print(
-          (lambda X:X[::2])(
+          (lambda X: X[::2])(
             ('abc')))
 
         #hissp/$ is also built in. It munges a string, making it act
@@ -638,7 +638,7 @@ class PyrMixin(AbstractEDN):
     set = staticmethod(pset)
     map = staticmethod(pmap)
     list = staticmethod(plist)
-    vector = pvector  # nondescriptor
+    vector = staticmethod(pvector)
 
 class PyrBuiltinEDN(PyrMixin, BuiltinEDN):
     """Adds Pyrsistent collections to BuiltinEDN.
@@ -664,7 +664,7 @@ class PyrBoxedEDN(PyrMixin, BoxedEDN):
     """Adds Pyrsistent collections to BoxedEDN
 
     >>> next(PyrBoxedEDN(R'#{{} [] ()}').read())
-    pset([Box(pmap({})), Box(plist([])), Box(pvector([]))])
+    pset([Box(pmap({})), Box(pvector([])), Box(plist([]))])
 
     Pyrsistent collections are already hashable (if their elements
     are), but the equality problem remains and tags may still generate
@@ -711,12 +711,8 @@ class PandoraHissp(LilithHissp):
     >>> print(PandoraHissp('''
     ... #hissp/. [42]
     ... ''').exec())
-    __import__('pickle').loads(  # pvector([42])
-        b'cpvectorc\n'
-        b'pvector\n'
-        b'((lI42\n'
-        b'atR.'
-    )
+    # pvector([42])
+    __import__('pickle').loads(b'cpyrsistent._pvector\npython_pvector\n((lI42\natR.')
 
     This can fail if the collection contains an unpicklable element.
     >>> PandoraHissp('''

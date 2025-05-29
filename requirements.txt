@@ -1,0 +1,2 @@
+hissp==0.5.0
+pyrsistent==0.20.0
