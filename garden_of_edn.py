@@ -285,6 +285,10 @@ class LiteralEDN(BuiltinEDN):
     R"""
     Round-tripping EDN parser using only types with literal notation.
 
+    "Round tripping" is in the sense of the original data, not the
+    format of the text. It doesn't save whitespace formatting, comments,
+    discarded items, or what string escapes may have been used.
+
     This form can be serialized with repr() and read back with
     ast.literal_eval(). It also easily serializes to JSON, but that
     format does not reliably distinguish ints from floats, so JSON may
@@ -485,7 +489,7 @@ class BoxedEDN(StandardEDN):
     R"""Uses Box for keys.
 
     Unlike the simpler parsers, there are no cases expected to lose
-    data. This a round-tripping parser.
+    data. This a round-tripping parser (at the level of data, not text).
 
     >>> next(BoxedEDN(R'{{1 1} 2, [2 2] 4}').read())
     {Box({Box(1): 1}): 2, Box([2, 2]): 4}
@@ -947,7 +951,7 @@ class AbstractAsEDN(metaclass=ABCMeta):
     @staticmethod
     def symbol(v: str) -> str: return v
     @staticmethod
-    def string(v: str) -> str: return f'"{v.replace('"', R'\"')}"'
+    def string(v: str) -> str: return f'"{v.replace("\\", "\\\\").replace('"', R'\"')}"'
     @staticmethod
     def keyword(k: str) -> str: return f':{k}'
     @staticmethod
