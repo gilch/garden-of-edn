@@ -1097,6 +1097,22 @@ class LiteralAsEDN(AbstractAsEDN):
 
 class LiteralOnlyAsEDN(LiteralAsEDN, GiveUpMixin): pass
 
+def minify(edn: str) -> str:
+    """Rewrites EDN whitespace to a single ',' between each token
+    via AbstractAsEDN.dumps().
+    """
+    return LiteralOnlyAsEDN.dumps(LiteralEDN(edn).read())
+
+def pformat(edn: str) -> str:
+    """Convenience function to pretty-format EDN
+    via AbstractAsEDN.pdumps().
+    """
+    return LiteralOnlyAsEDN.pdumps(LiteralEDN(edn).read())
+
+def pprint(edn: str) -> None:
+    """Convenience function to pretty-print EDN via pformat()."""
+    print(pformat(edn))
+
 if __name__ == '__main__':
     doctest.testmod()
 
