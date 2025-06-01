@@ -15,6 +15,7 @@ import io
 import pathlib
 import re
 from abc import ABCMeta, abstractmethod
+from collections import UserList, UserString
 from collections.abc import Iterator, Iterable, Mapping, Sequence, Set
 from datetime import datetime
 from decimal import Decimal
@@ -236,10 +237,11 @@ class BuiltinEDN(AbstractEDN):
     >>> [*BuiltinEDN(R'42 4.2 true nil').read()]
     [42, 4.2, True, None]
 
-    However, this means it throws away information and can't round-trip
-    back to the same EDN. Keywords, strings, symbols, and characters all
-    become strings, because idiomatic Python uses the str type for all
-    of these use cases. (ClojureScript will also use strings for chars.)
+    However, this means it throws away information and can't always
+    round-trip back to the same EDN data. Keywords, strings, symbols,
+    and characters all become strings, because idiomatic Python uses the
+    str type for all of these use cases. (ClojureScript will also use
+    strings for chars.)
     >>> [*BuiltinEDN(R'"foo" :foo foo \x').read()]
     ['foo', ':foo', 'foo', 'x']
 
@@ -345,9 +347,9 @@ class StandardEDN(BuiltinEDN):
 
     This means that vectors and lists are no longer distinguishable, but
     (in practice) this distinction usually doesn't matter. Having two
-    sequence type literals is somewhat useful in Clojure, but redundant
-    in EDN. They compare equal when used in maps or sets anyway.
-    If this matters for your use case, you can override one of them.
+    seq literals is somewhat useful in Clojure, but redundant in EDN.
+    They compare equal when used in maps or sets anyway. If this matters
+    for your use case, you can override one of them.
 
     EDN map types still render to dict. No hashable mapping type is
     available in the standard library. While the
@@ -357,17 +359,43 @@ class StandardEDN(BuiltinEDN):
     List is still used as a fallback for unhashable elements.
     There's not much point in using a tuple here, since a tuple with
     an unhashable element is itself unhashable.
-    >>> next(StandardEDN(R'{{1 1} 2, {2 2} 4}').read())
-    [({1: 1}, 2), ({2: 2}, 4)]
-    >>> next(StandardEDN(R'#{{1 1} 2 {2 2} 4}').read())
+
+    >>> a_set = next(StandardEDN(R'#{{1 1} 2 {2 2} 4}').read())
+    >>> type(a_set)
+    <class 'list'>
+    >>> a_set
     [{1: 1}, 2, {2: 2}, 4]
 
-    If the resulting list contains any non-pairs, it must have been
-    read from a set. If the resulting list contains only pairs,
-    it was likely read from a map, but could (in principle) have been
-    read from a set of pairs, making it impossible to be sure. In the
-    unlikely case this matters for your use, override cmap or cset to
-    make them distinguishable.
+    Python's `in` operator works on any collection type, and set
+    operations are not hard to do with list comprehensions:
+    >>> {1: 1} in a_set
+    True
+    >>> [x for x in a_set if x in [2,4,6]]  # Intersection
+    [2, 4]
+    >>> [x for x in a_set if x not in [2,4,6]]  # Difference
+    [{1: 1}, {2: 2}]
+    >>> _ + [2,4,6]  # Union (without duplicates after difference)
+    [{1: 1}, {2: 2}, 2, 4, 6]
+
+    >>> a_map = next(StandardEDN(R'{{1 1} 2, {2 2} 4}').read())
+    >>> a_map
+    [({1: 1}, 2), ({2: 2}, 4)]
+
+    If the resulting list contains only pairs, it was likely read from a
+    map, but could (in principle) have been read from a set of pairs.
+    Check for the UserList type to distigish these cases.
+    >>> type(a_map)
+    <class 'collections.UserList'>
+
+    An iterable of pairs is already the form a dict's .items() would
+    take. Lookups can be done by scanning:
+    >>> next(v for k, v in a_map if k=={2: 2})
+    4
+
+    An absent item would result in a StopIteration rather than a
+    KeyError, but next() can have a default like dict.get()
+    >>> next((v for k, v in a_map if k==7), 0)
+    0
 
     Symbol and keyword types map to `unittest.mock.sentinel`,
     a standard-library type meant for unit testing, but with the
@@ -376,37 +404,40 @@ class StandardEDN(BuiltinEDN):
     by the spec, because they remain distinguishable by the leading
     character.
     >>> next(StandardEDN('[:foo foo]').read())
-    (sentinel.:foo, sentinel.'foo)
+    (sentinel.:foo, sentinel.foo)
     >>> _[0] is next(StandardEDN(':foo').read())
     True
 
-    Chars get encoded to bytes.
+    Chars become length-1 strings as in ClojureScript.
     >>> next(StandardEDN(R'[\* "*" :* *]').read())
-    (b'*', '*', sentinel.:*, sentinel.'*)
+    ('*', '*', sentinel.:*, sentinel.*)
+
+    They're distinguishable as UserStrings rather than the builtin str:
+    >>> type(_[0])
+    <class 'collections.UserString'>
 
     Python has a perfectly good bool type, but because EDN equality
     is different, it would cause collections to fail to round-trip
     in some cases.
 
     True is a special case of 1 and False 0 in Python, so the first
-    values were overwritten.
+    values here were overwritten:
     >>> next(BuiltinEDN('{0 0, 1 1, false 2, true 3}').read())
     {0: 2, 1: 3}
 
     EDN doesn't consider these keys equal, so data was lost.
     StandardEDN can handle this without loss, by using the same
     sentinel type for true as well. sentinel.false could also be used
-    without abiguity, but b'' has the advantage of being falsy,
-    while still never comparing equal to any other standard EDN type.
-    (Chars do render as bytes, but they are never length 0.)
+    without ambiguity, but b'' has the advantage of being falsy,
+    while still never comparing equal to any other StandardEDN type.
     >>> next(StandardEDN('{0 0, 1 1, false 2, true 3}').read())
     {0: 0, 1: 1, b'': 2, sentinel.true: 3}
 
     The precision types are now distinguishable. A denominator-1
-    fraction is a bit less natural. Python 2 used to have a separate
-    int and long type, but now its int is arbitrary-precision, and it
-    lacks a fixed-precision type. Because int is expected to be more
-    common than intN, it gets the builtin, and intN gets something
+    fraction is a bit less natural. Python (in version 2) used to have a
+    separate int and long type, but now its int is arbitrary-precision,
+    and it lacks a fixed-precision type. Because int is expected to be
+    more common than intN, it gets the builtin, and intN gets something
     else.
     >>> next(StandardEDN('[0 0N 0M 0.0]').read())
     (0, Fraction(0, 1), Decimal('0'), 0.0)
@@ -417,18 +448,27 @@ class StandardEDN(BuiltinEDN):
     an issue in practice.
     >>> next(StandardEDN('#{0 0N 0M 0.0}').read())
     frozenset({0})
+
+    There's a similar problem with chars and length-1 strings, which
+    Python considers equal. EDN should technically not consider them
+    equal, and it's not specifically called out in the spec (unlike
+    the numbers), but ClojureScript has the same problem, so this is
+    also rarely an issue in practice.
+    >>> next(StandardEDN(R'#{\a "a"}').read())
+    frozenset({'a'})
     """
+    # TODO: doctest tag/methodcaller examples
     set = frozenset
     vector = tuple
     floatM = Decimal
     # The above three are sensible choices, although Decimal is not in
     # builtins. The remainder are less natural, but work.
-    cmap = cset = list
-    char = staticmethod(str.encode)
-    intN = Fraction  # Denominator 1.
-    keyword = staticmethod(partial(getattr, sentinel))
-    def symbol(self, v: str): return getattr(sentinel, "'"+v)
-    nil = bool = {'false':b'', 'true':sentinel.true}.get
+    cmap = UserList
+    cset = list
+    char = UserString
+    intN = Fraction  # Denominator defaults to 1 if passed an int.
+    symbol = keyword = staticmethod(partial(getattr, sentinel))
+    nil = bool = {'false': b'', 'true': sentinel.true}.get
     tag = methodcaller  # Defers a call, but won't actually be a method.
 
 class Box:
@@ -506,13 +546,14 @@ class BoxedEDN(StandardEDN):
     so there's no reason not to use the more natural types. Rendered
     types are otherwise as StandardEDN.
     >>> next(BoxedEDN(R'(0 0N 0M 0.0 false False)').read())
-    (0, Fraction(0, 1), Decimal('0'), 0.0, False, sentinel.'False)
+    (0, Fraction(0, 1), Decimal('0'), 0.0, False, sentinel.False)
     """
     vector = list
     bool = BuiltinEDN.bool
     key = Box
 
 # TODO: figure out aliases
+# TODO: build in q# tag for '
 class LilithHissp(BuiltinEDN):
     R"""Parses to Hissp. Allows Python programs to be written in EDN.
 
@@ -874,7 +915,7 @@ class AbstractAsEDN(metaclass=ABCMeta):
             # collections
             case Mapping():  return self.map(obj.items())
             case Set():      return self.set(obj)
-            case Sequence() if not isinstance(obj, PList):
+            case Sequence() if not isinstance(obj, (PList, bytes, str)):
                 return self.vector(obj)
             case Iterable() if not isinstance(obj, (bytes, str)):
                 return self.list(obj)
@@ -1036,19 +1077,16 @@ class StandardAsEDN(AbstractAsEDN):
     def dispatch(self, obj) -> Iterable[str]:
         R"""
         >>> s = sentinel
-        >>> edn = [b'', Fraction(2/1), s.true, b'\n', s.spam, getattr(s, "'spam")]
+        >>> edn = [b'', Fraction(2/1), s.true, UserString('\n'), getattr(s, ":spam"), s.spam]
         >>> print(StandardAsEDN.dumps(edn))
         false,2N,true,\newline,:spam,spam
         """
         match obj:
-            case b'':                      return self.bool(False)
-            case Fraction():               return self.intN(int(obj))
-            case sentinel.true:            return self.bool(True)
-            case bytes() if len(obj) == 1: return self.char(obj.decode())
-            case _SentinelObject():
-                if obj.name.startswith("'"):
-                    return self.symbol(obj.name[1:])
-                return self.keyword(obj.name)
+            case b'':                           return self.bool(False)
+            case Fraction():                    return self.intN(int(obj))
+            case sentinel.true:                 return self.bool(True)
+            case UserString() if len(obj) == 1: return self.char(obj)
+            case _SentinelObject():             return self.symbol(obj.name)
             case _: return super().dispatch(obj)
 
 class LiteralAsEDN(AbstractAsEDN):
@@ -1120,4 +1158,5 @@ def pprint(edn: str) -> None:
 if __name__ == '__main__':
     doctest.testmod()
 
-# TODO: HisspEDN repl?
+# TODO: HisspEDN repl? Via nrepl?
+# TODO: Hypothesis tests?
