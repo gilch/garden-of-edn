@@ -553,7 +553,6 @@ class BoxedEDN(StandardEDN):
     key = Box
 
 # TODO: figure out aliases
-# TODO: build in q# tag for '
 class LilithHissp(BuiltinEDN):
     R"""Parses to Hissp. Allows Python programs to be written in EDN.
 
@@ -663,6 +662,8 @@ class LilithHissp(BuiltinEDN):
         ... ''', env=env).read())
         'QzAT_'
         """
+        if tag == 'q': return 'quote', element
+        # TODO: quasiquotes?
         if tag == 'hissp/.':  # inject
             return eval(hissp.readerless(element, self.compiler.env), self.compiler.env)
         if tag == 'hissp/$':  # munge
