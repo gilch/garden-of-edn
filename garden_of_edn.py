@@ -1,4 +1,4 @@
-# Copyright 2022, 2023 Matthew Egan Odendahl
+# Copyright 2022, 2023, 2024, 2025 Matthew Egan Odendahl
 # SPDX-License-Identifier: MPL-2.0
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -725,6 +725,182 @@ class PyrBoxedEDN(PyrMixin, BoxedEDN):
     Pyrsistent and Garden of EDN.
     """
 
+
+class _SExpression:
+    R"""
+    Helper object to make unambiguous data for EDN.
+
+    Common simple cases.
+    >>> S.foo  # symbol type
+    S@'foo'
+    >>> +S.foo  # keywords are still of symbol type
+    S@':foo'
+    >>> S.nil  # a particular symbol instance
+    S@'nil'
+    >>> S.true # also a particular symbol instance
+    S@'true'
+    >>> S/"a"  # a character type
+    S/'a'
+    >>> type(S/"a").__name__
+    'Char'
+    >>> S@42  # IntN type forces N even for small ints
+    S@'42N'
+
+    S.false and S.nil are falsy, but not ints.
+    >>> bool(S.nil)
+    False
+    >>> bool(S.false)
+    False
+    >>> S.false == 0
+    False
+    >>> S.true == 1
+    False
+
+    But an IntN is an int.
+    >>> S@42 + 1
+    43
+    >>> str(S@42)
+    '42N'
+
+    >>> S@"foo!"  # String must contain an EDN atom.
+    S@'foo!'
+    >>> S.foo.bar
+    S@'foo.bar'
+    >>> type(_).__name__
+    'Symbol'
+    >>> S.foo@"bar!"@"baz!"  # appends segments
+    S@'foo.bar!.baz!'
+    >>> S.foo is S.foo  # symbol interning
+    True
+    >>> S.foo.bar/"baz"  # namespaces
+    S@'foo.bar/baz'
+    >>> S@"foo!.bar"/S.baz
+    S@'foo!.bar/baz'
+
+    Symbols convert to Keywords with +.
+    >>> +S.foo.bar/S.baz
+    S@':foo.bar/baz'
+
+    Returns standard-library types in some cases:
+    >>> S@"42"  # EDN integer to Python int
+    42
+    >>> S@"4.2"  # EDN float to Python float
+    4.2
+    >>> S@"4.2M"  # EDN floatM to Python Decimal
+    Decimal('4.2')
+    >>> S@'"foo"'  # EDN string to Python str
+    'foo'
+
+    Makes pmaps and psets even if types are unhashable (via Box).
+    >>> S[1:2, 3:4]
+    pmap({Box(1): 2, Box(3): 4})
+    >>> S@[1,2,3]
+    pset([Box(1), Box(2), Box(3)])
+
+    Also makes plist.
+    >>> S(1,2,3)
+    plist([1, 2, 3])
+    """
+    # TODO: figure out pvector?
+    def __matmul__(self, other):
+        match other:
+            case int(): return IntN(other)
+            case str(): return Atom.from_edn(other)
+        return pset(map(Box, other))
+        # return pvector(other)
+    def __truediv__(self, other):
+        return Char(other)
+    def __getattr__(self, item):
+        return Symbol(item)
+    def __getitem__(self, item):
+        return pmap({Box(s.start): s.stop for s in item}, len(item))
+    def __call__(self, *args):
+        return plist(args)
+S = _SExpression()
+
+class Atom:
+    """Represents a single atom of EDN data. Normally made using S."""
+    @classmethod
+    def from_edn(cls, atom):
+        """Besides an instance of one of the Atom subclasses,
+        may return an int, float, str, or Decimal object as appropriate.
+        """
+        first, *rest = LiteralEDN(atom).read()
+        if rest or type(first) is tuple:
+            raise ValueError(f'Expected atom, got {atom}')
+        match first:
+            case bool() | None:   return Symbol(atom)
+            case int() | float(): return first
+            case str():
+                match first[0]:
+                    case '"': return first[1:]
+                    case "'": return Symbol(first[1:])
+                    case ':': return Symbol(first)
+                    case 'N': return IntN(first[1:])
+                    case 'M': return Decimal(first[1:])
+                    case '\\': return Char(first[1:])
+        # TODO: assert_never(v) in 3.11
+        raise AssertionError('unreachable', atom)
+    def __repr__(self):
+        return f'S@{str(self)!r}'
+
+class IntN(int, Atom):
+    """An int subclass representing an arbitrary-precision EDN int."""
+    def __str__(self):
+        return super().__repr__() + 'N'
+    __repr__ = Atom.__repr__
+
+class Char(Atom):
+    """Represents a single EDN character, and isn't a string."""
+    def __init__(self, c):
+        if len(c) != 1:
+            raise ValueError(f'Expected character, got {c}')
+        self.c = c
+    def __str__(self):
+        return self.c
+    def __repr__(self):
+        return f'S/{self.c!r}'
+
+class Symbol(Atom):
+    """Represents an EDN nil, true, false, symbol, or keyword."""
+    _interns = {}
+    def __hash__(self):
+        return hash(self.name)
+    def __bool__(self):
+        return not self in {S.false, S.nil}
+    def __new__(cls, name):
+        new = object.__new__(cls)
+        new.name = name
+        return cls._interns.setdefault(name, new)
+    def __getattr__(self, item):
+        return Symbol(f'{self.name}.{item}')
+    def __pos__(self):
+        return Symbol(':' + self.name)
+    def __truediv__(self, other):
+        if isinstance(other, str):
+            other = S@other
+        if "/" in self.name or "/" in other.name:
+            raise ValueError("Only one / allowed in EDN symbols.")
+        return S@f'{self.name}/{other.name}'
+    def __matmul__(self, other):
+        if isinstance(other, Symbol):
+            other = other.name
+        return S@f'{self.name}.{other}'
+    def __str__(self):
+        return self.name
+
+class GardenEDN(PyrMixin):
+    """Uses the Atom types, Box, and Pyrsistent collections to
+    follow EDN as closely as possible. This is a round-tripping parser.
+
+    Due to the use of non-standard types, unpickling the results in
+    another environment may require a Garden of EDN install there.
+    """
+    symbol = string = keyword = bool = nil = float = floatM = int = intN = char = (
+        Atom.from_edn
+    )
+    key = Box
+
 class PandoraHissp(LilithHissp):
     R"""Interprets EDN colls as Pyrsistent collection except lists.
 
@@ -847,11 +1023,11 @@ def __getattr__(name):
             raise
         raise SystemExit
 
-class AbstractAsEDN(metaclass=ABCMeta):
+class AsEDN:
     """
-    EDN serializer abstract base class.
+    EDN serializer base class.
 
-    Subclasses should override the abstract dispatch() method which
+    Subclasses should override the dispatch() method which
     should handle what it knows call super().dispatch(obj) for the rest.
     If you'd instead prefer to avoid the default cases, insert the
     GiveUpMixin in the appropriate place in the method resolution order,
@@ -861,15 +1037,9 @@ class AbstractAsEDN(metaclass=ABCMeta):
     def __init__(self, *, comma=''):
         self.context = []
         self.comma = comma
-    @abstractmethod
     def dispatch(self, obj) -> Iterable[str]:
-        """
-        Abstract implementation handles only the most obvious cases.
-        (No way to emit symbols, keywords, or characters, which
-        must be handled by subclasses, if at all.)
-
-        Given a minimal concrete subclass (dispatch() is abstract):
-        >>> class AsEDN(AbstractAsEDN):dispatch=lambda s,o:super().dispatch(o)
+        R"""
+        Handles only the most obvious cases.
 
         Tags:
         >>> AsEDN.dumps([datetime.fromisoformat('2025-05-04T13:13:13')])
@@ -898,10 +1068,15 @@ class AbstractAsEDN(metaclass=ABCMeta):
           2]}
         <BLANKLINE>
 
+        Also recognizes the Atom subclasses:
+        >>> AsEDN.dumps([S.foo, +S.foo, S.nil, S.false, S/"\n", S@42])
+        'foo,:foo,nil,false,\\newline,42N'
         """
         match obj:
             case Box():      return self.dispatch(obj.k)
             # atoms
+            case Symbol() | IntN(): return str(obj)
+            case Char():     return self.char(str(obj))
             case datetime(): return '#inst', f'"{obj.isoformat()}"'
             case UUID():     return '#uuid', f'"{obj}"'
             case None:       return self.nil()
@@ -1018,7 +1193,7 @@ class AbstractAsEDN(metaclass=ABCMeta):
             _chars.get(v, v)
         )
 
-class GiveUpMixin(AbstractAsEDN):
+class GiveUpMixin(AsEDN):
     """
     Overrides dispatch() to raise a TypeError and not call the super()
     version. Used to suppress any further inherited handlers, for cases
@@ -1029,11 +1204,11 @@ class GiveUpMixin(AbstractAsEDN):
         """Always raises a TypeError."""
         raise TypeError(f"No handler for {obj!r}.")
 
-class StrAsEDN(AbstractAsEDN):
+class StrAsEDN(AsEDN):
     """
-    The simplest "complete" EDN serializer. Overrides the str handling
-    to uncritically emit their contents. This can still be used to emit
-    EDN strings, by using a str containing an EDN string.
+    Overrides the str handling to uncritically emit their contents.
+    This can still be used to emit EDN strings, by using a str
+    containing an EDN string.
     """
     def dispatch(self, obj) -> Iterable[str]:
         R"""Overrides the str handler to return its contents:
@@ -1053,11 +1228,14 @@ class StrAsEDN(AbstractAsEDN):
             case str(): return obj
             case _: return super().dispatch(obj)
 
-class TupleAsEDNList(AbstractAsEDN):
+class TupleAsEDNList(AsEDN):
     """
     Overrides tuple handling to emit EDN lists (instead of vectors).
     Given the abstract default handlers, this is effectively the inverse
     of BuiltinEDN, which doesn't claim to round-trip.
+
+    Other Sequence types (besides PList, bytes, and str) sill serialize
+    as vectors by default.
     """
     def dispatch(self, obj) -> Iterable[str]:
         """
@@ -1069,7 +1247,7 @@ class TupleAsEDNList(AbstractAsEDN):
             case _: return super().dispatch(obj)
 
 _SentinelObject = type(sentinel.X)
-class StandardAsEDN(AbstractAsEDN):
+class StandardAsEDN(AsEDN):
     """
     The inverse of the StandardEDN parser, given the abstract default
     handlers, which would also invert the BoxedEDN, PyrStandardEDN,
@@ -1090,7 +1268,7 @@ class StandardAsEDN(AbstractAsEDN):
             case _SentinelObject():             return self.symbol(obj.name)
             case _: return super().dispatch(obj)
 
-class LiteralAsEDN(AbstractAsEDN):
+class LiteralAsEDN(AsEDN):
     """
     Round-tripping serializer using the LiteralEDN format.
     It will also fall back to the superclass handlers.
@@ -1117,7 +1295,7 @@ class LiteralAsEDN(AbstractAsEDN):
             case ['vector', *xs] if type(obj) is tuple: return self.vector(xs)
             case ['list', *xs] if type(obj) is tuple:   return self.list(xs)
             case ['map', *kvs] if type(obj) is tuple:   return self.map(kvs)
-            # primitives (AbstractAsEDN has these, but see LiteralOnlyAsEDN.)
+            # primitives (AsEDN has these, but see LiteralOnlyAsEDN.)
             case None:    return self.nil()
             case bool():  return self.bool(obj)
             case int():   return self.int(obj)
@@ -1140,15 +1318,24 @@ class LiteralAsEDN(AbstractAsEDN):
 
 class LiteralOnlyAsEDN(LiteralAsEDN, GiveUpMixin): pass
 
+class GardenAsEDN(TupleAsEDNList):
+    def dispatch(self, obj) -> Iterable[str]:
+        match obj:
+            case Symbol() | IntN():
+                return str(obj)
+            case Char():
+                return self.char(str(obj))
+            case _: return super().dispatch(obj)
+
 def minify(edn: str) -> str:
     """Rewrites EDN whitespace to a single ',' between each token
-    via AbstractAsEDN.dumps().
+    via AsEDN.dumps().
     """
     return LiteralOnlyAsEDN.dumps(LiteralEDN(edn).read())
 
 def pformat(edn: str) -> str:
     """Convenience function to pretty-format EDN
-    via AbstractAsEDN.pdumps().
+    via AsEDN.pdumps().
     """
     return LiteralOnlyAsEDN.pdumps(LiteralEDN(edn).read())
 
